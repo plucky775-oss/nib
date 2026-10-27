@@ -1,0 +1,28 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {correctShape} from '../src/shapes.js';
+const run=(p,o={})=>correctShape(p,{enabled:true,...o});
+const circle=(r=70,noise=0,end=Math.PI*2,n=100,ry=r)=>Array.from({length:n+1},(_,i)=>{const a=end*i/n,j=noise*Math.sin(a*7);return {x:200+(r+j)*Math.cos(a),y:250+(ry+j)*Math.sin(a),pressure:.2+i/n*.6,t:i};});
+const line=(n=100,noise=0)=>Array.from({length:n+1},(_,i)=>({x:100+i,y:100+i*.6+noise*Math.sin(i*.6),pressure:.6}));
+function unchanged(p,o){const r=run(p,o);assert.equal(r.kind,'none');assert.deepEqual(r.points,p);}
+test('disabled by default; fresh copies',()=>{const p=circle(),r=correctShape(p);assert.equal(r.kind,'none');assert.deepEqual(r.points,p);assert.notEqual(r.points,p);assert.notEqual(r.points[0],p[0]);});
+test('inclined noisy line becomes straight, endpoints unchanged',()=>{const p=line(100,.8),r=run(p);assert.equal(r.kind,'line');assert.deepEqual(r.points[0],p[0]);assert.deepEqual(r.points.at(-1),p.at(-1));const a=r.points[0],b=r.points.at(-1);for(const q of r.points)assert.ok(Math.abs((q.x-a.x)*(b.y-a.y)-(q.y-a.y)*(b.x-a.x))<1e-9);});
+test('perfect lines stay stable and source remains immutable',()=>{const p=line();const before=structuredClone(p);p.forEach(Object.freeze);Object.freeze(p);const r=run(p);assert.equal(r.kind,'line');assert.deepEqual(p,before);r.points.forEach((q,i)=>{assert.ok(Math.abs(q.x-p[i].x)<1e-10);assert.equal(q.pressure,p[i].pressure);});});
+test('noisy circle corrected to one radius; metadata and source preserved',()=>{const p=circle(70,2),before=structuredClone(p),r=run(p);assert.equal(r.kind,'circle');assert.deepEqual(p,before);for(let i=0;i<p.length;i++){assert.equal(r.points[i].pressure,p[i].pressure);assert.equal(r.points[i].t,p[i].t);}assert.equal(r.points[0].x,r.points.at(-1).x);assert.equal(r.points[0].y,r.points.at(-1).y);const c={x:(Math.max(...r.points.map(p=>p.x))+Math.min(...r.points.map(p=>p.x)))/2,y:(Math.max(...r.points.map(p=>p.y))+Math.min(...r.points.map(p=>p.y)))/2};const radii=r.points.map(p=>Math.hypot(p.x-c.x,p.y-c.y));assert.ok(Math.max(...radii)-Math.min(...radii)<.1);});
+test('already perfect circle stable',()=>{const p=circle(),r=run(p);assert.equal(r.kind,'circle');for(let i=0;i<p.length;i++)assert.ok(Math.hypot(p[i].x-r.points[i].x,p[i].y-r.points[i].y)<.001);});
+test('both circle drawing directions recognized',()=>assert.equal(run(circle().reverse()).kind,'circle'));
+test('small Hangul-sized circle and small line untouched',()=>{unchanged(circle(14,1));unchanged([{x:0,y:0},{x:15,y:1}]);});
+test('intentional ellipse unchanged',()=>unchanged(circle(90,0,Math.PI*2,100,50)));
+test('arc and semicircle unchanged',()=>{unchanged(circle(70,0,Math.PI*1.8));unchanged(circle(70,0,Math.PI));});
+test('spiral unchanged',()=>unchanged(Array.from({length:201},(_,i)=>{const a=i/200*Math.PI*4,r=20+i*.3;return {x:200+r*Math.cos(a),y:200+r*Math.sin(a)};})));
+test('rectangle unchanged',()=>{const corners=[{x:100,y:100},{x:200,y:100},{x:200,y:200},{x:100,y:200},{x:100,y:100}],p=[];for(let i=1;i<corners.length;i++)for(let j=0;j<25;j++)p.push({x:corners[i-1].x+(corners[i].x-corners[i-1].x)*j/25,y:corners[i-1].y+(corners[i].y-corners[i-1].y)*j/25});p.push(corners.at(-1));unchanged(p);});
+test('letterlike loop-tail and figure eight unchanged',()=>{unchanged([...circle(),{x:300,y:330},{x:320,y:340}]);unchanged(Array.from({length:101},(_,i)=>({x:200+70*Math.sin(i*Math.PI/50),y:200+70*Math.sin(i*Math.PI/25)})));});
+test('intentional shallow curve untouched',()=>unchanged(Array.from({length:101},(_,i)=>({x:100+i,y:100+8*Math.sin(i*Math.PI/100)}))));
+test('line retracing untouched',()=>unchanged([...line(),...line().reverse(),...line()]));
+test('invalid, empty, singleton and degenerate safe',()=>{for(const p of [[],[{x:1,y:1}],[{x:1,y:1},{x:1,y:1}],[{x:NaN,y:0},{x:1,y:1}],[null,{x:1,y:1}],[{x:Infinity,y:0},{x:1,y:1}]])unchanged(p);assert.deepEqual(run(null).points,[]);});
+test('duplicate samples safe',()=>{const p=line();p.splice(20,0,{...p[19]});assert.equal(run(p).kind,'line');});
+test('two-point long line supported; vertical line preserved',()=>{assert.equal(run([{x:0,y:0},{x:0,y:80}]).kind,'line');assert.equal(run(Array.from({length:81},(_,y)=>({x:20,y}))).kind,'line');});
+test('near closed circle gap snaps closed',()=>assert.equal(run(circle(70,1,Math.PI*2-.08)).kind,'circle'));
+test('double circle winding rejected',()=>unchanged(circle(70,0,Math.PI*4,200)));
+test('large sampling gap rejected',()=>{const p=circle();p.splice(10,25);unchanged(p);});
+test('small large-radius arc does not masquerade as straight line',()=>unchanged(circle(70,0,.9,50)));
