@@ -1,0 +1,1 @@
+export default function handler(req,res){res.setHeader('Cache-Control','no-store');if(req.method!=='GET')return res.status(405).json({error:'GET only'});return res.status(200).json({configured:!!(process.env.Gemini_API_Key||process.env.GEMINI_API_KEY)&&!!process.env.NIB_ACCESS_TOKEN&&process.env.NIB_ACCESS_TOKEN.length>=4});}
