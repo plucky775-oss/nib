@@ -1,6 +1,6 @@
 import {customFontId} from './custom-fonts.js';
 export const PAGE={width:900,height:1200};
-export const FONTS=[{id:'NanumPenScript',name:'나눔손글씨 펜',file:'NanumPenScript-Regular.ttf'},{id:'NanumBrushScript',name:'나눔손글씨 붓',file:'NanumBrushScript-Regular.ttf'},{id:'Gaegu',name:'개구',file:'Gaegu-Regular.ttf'},{id:'GamjaFlower',name:'감자꽃',file:'GamjaFlower-Regular.ttf'},{id:'PoorStory',name:'푸어스토리',file:'PoorStory-Regular.ttf'}];
+export const FONTS=[{id:'NanumPenScript',name:'나눔손글씨 펜',file:'NanumPenScript-Regular.woff2'},{id:'NanumBrushScript',name:'나눔손글씨 붓',file:'NanumBrushScript-Regular.woff2'},{id:'Gaegu',name:'개구',file:'Gaegu-Regular.woff2'},{id:'GamjaFlower',name:'감자꽃',file:'GamjaFlower-Regular.woff2'},{id:'PoorStory',name:'푸어스토리',file:'PoorStory-Regular.woff2'}];
 export function id(){return globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2)}
 export function makeNote(){return {id:id(),title:'새 노트',createdAt:Date.now(),updatedAt:Date.now(),strokes:[],text:'',font:FONTS[0].id,fontSize:32,mode:'ink',smooth:0.55,showOriginal:false,paper:'ruled'}}
 export function smoothPoints(points,amount=0.55){if(points.length<3||amount<=0)return points.map(p=>({...p})); const a=Math.min(0.85,Math.max(0,amount)); return points.map((p,i)=>i===0||i===points.length-1?{...p}:{...p,x:p.x*(1-a)+(points[i-1].x+points[i+1].x)*a/2,y:p.y*(1-a)+(points[i-1].y+points[i+1].y)*a/2});}
