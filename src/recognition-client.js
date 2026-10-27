@@ -7,7 +7,8 @@ export async function sendRecognition({image,accessToken,signal,fetcher=fetch,ti
  try{
   const res=await abortable(fetcher('./api/recognize',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+accessToken},body:JSON.stringify({image,consent:true}),signal:controller.signal}));
   let result;try{result=await abortable(res.json())}catch(e){if(controller.signal.aborted)throw e;throw failure(res.status===504?'호스팅 응답 시간이 초과되었습니다. 원본은 보존됩니다.':'서버 응답을 읽지 못했습니다. 원본은 보존됩니다.',res.status===504?'HOST_TIMEOUT':'INVALID_RESPONSE',true)}
-  if(!res.ok)throw Object.assign(failure(result.error||'인식에 실패했습니다.',result.code||'RECOGNITION_FAILED',result.retryRequiresConfirmation===true||res.status>=500),{status:res.status});
+  const requestId=typeof result.requestId==='string'&&/^[a-f0-9-]{36}$/i.test(result.requestId)?result.requestId:'';
+  if(!res.ok)throw Object.assign(failure((result.error||'인식에 실패했습니다.')+(requestId?' (문의 ID: '+requestId+')':''),result.code||'RECOGNITION_FAILED',result.retryRequiresConfirmation===true||res.status>=500),{status:res.status});
   if(typeof result.text!=='string')throw failure('인식 결과 형식이 올바르지 않습니다.','INVALID_RESPONSE',true);
   return result.text;
  }catch(e){

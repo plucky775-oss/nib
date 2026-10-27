@@ -6,6 +6,6 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "build": "node scripts/build.mjs",
-    "check": "node --check src/recognition-client.js && node --check src/ink-lines.js && node --check src/recognition-selection.js && node --check src/area-eraser.js && node --check src/smoothing.js && node --check src/shapes.js && node --check src/converted-groups.js && node --check src/auto-convert.js && node --check src/app-update.js && node --check src/ink-input.js && node --check src/app.js && node --check src/core.js && node --check src/storage.js && node --check src/custom-fonts.js && node --check api/recognize.js && node --check api/status.js && node --check public/sw.js"
+    "check": "node --check src/selection.js && node --check src/recognition-client.js && node --check src/ink-lines.js && node --check src/recognition-selection.js && node --check src/area-eraser.js && node --check src/smoothing.js && node --check src/shapes.js && node --check src/converted-groups.js && node --check src/auto-convert.js && node --check src/app-update.js && node --check src/ink-input.js && node --check src/app.js && node --check src/core.js && node --check src/storage.js && node --check src/custom-fonts.js && node --check api/recognize.js && node --check api/status.js && node --check public/sw.js"
   }
 }
