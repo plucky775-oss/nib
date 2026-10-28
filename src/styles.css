@@ -17,3 +17,5 @@
 /* Keep the paper origin fixed while request feedback changes. */
 .status-strip:has(#recognition-progress:not([hidden])) #auto-status,.status-strip:has(#recognition-progress:not([hidden])) #mode-label{display:none}
 #recognition-progress{flex:1;min-width:0;max-height:42px;overflow:auto;line-height:1.4;font-variant-numeric:tabular-nums;color:#465c7a}
+
+#text-drag-outline rect{fill:#526ef00d;stroke:#526ef0;stroke-width:1.5;stroke-dasharray:4 3;vector-effect:non-scaling-stroke;pointer-events:none}@media print{#text-drag-outline{display:none!important}}
