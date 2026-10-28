@@ -1,0 +1,13 @@
+import {PAPER_THEMES,normalizePaperTheme} from './paper-themes.js';
+import {COVER_PRESETS,normalizeCover} from './notebook-covers.js';
+/** Dialog owns drafts only: cancellation never calls persist. */
+export function mountNotebookEditor({persist}){
+ const $=id=>document.getElementById(id),dialog=$('notebook-dialog');let pending=null,busy=false,cover='midnight';
+ function render(){const preset=COVER_PRESETS.find(p=>p.id===cover);$('cover-preview').className='notebook-cover cover-'+cover;$('cover-preview-title').textContent=$('notebook-name').value.trim()||'노트 이름';$('cover-choice').replaceChildren(...COVER_PRESETS.map(p=>{const b=document.createElement('button');b.type='button';b.className='cover-choice cover-'+p.id;b.textContent=p.label;b.setAttribute('aria-pressed',String(p.id===cover));b.onclick=()=>{if(!busy){cover=p.id;render();}};return b;}));}
+ function finish(value){const resolve=pending?.resolve;pending=null;dialog.close();resolve?.(value);}
+ $('notebook-name').oninput=render;
+ $('cancel-notebook').onclick=()=>{if(!busy)finish(false)};
+ dialog.addEventListener('cancel',e=>{e.preventDefault();if(!busy)finish(false)});
+ $('notebook-form').onsubmit=async e=>{e.preventDefault();if(!pending||busy)return;const title=$('notebook-name').value.trim();if(!title||title.length>120){$('notebook-error').textContent='노트 이름을 1~120자로 입력해주세요.';$('notebook-name').focus();return;}busy=true;$('save-notebook').disabled=true;$('cancel-notebook').disabled=true;$('notebook-name').disabled=true;$('notebook-error').textContent='';try{const ok=await persist({id:pending.id,title,cover,...(!pending.id?{paperTheme:normalizePaperTheme($('new-paper-theme').value)}:{})});if(ok===false)throw Error('저장하지 못했습니다. 기존 노트는 그대로입니다. 다시 시도해주세요.');finish(true);}catch(error){$('notebook-error').textContent=error.message||'저장하지 못했습니다.';}finally{busy=false;$('save-notebook').disabled=false;$('cancel-notebook').disabled=false;$('notebook-name').disabled=false;}};
+ return {open(book=null){if(pending)return pending.promise;let resolve;const promise=new Promise(r=>resolve=r);pending={id:book?.id||null,resolve,promise};cover=normalizeCover(book?.cover);$('new-paper-label').hidden=!!book;$('new-paper-theme').replaceChildren(...PAPER_THEMES.map(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.label;return o;}));$('new-paper-theme').value='white';$('notebook-name').value=book?.title||'';$('notebook-dialog-title').textContent=book?'이름·표지 변경':'새 노트 만들기';$('save-notebook').textContent=book?'변경 저장':'노트 만들기';$('notebook-error').textContent='';render();dialog.showModal();$('notebook-name').focus();return promise;}};
+}

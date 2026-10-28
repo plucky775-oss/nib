@@ -1,3 +1,4 @@
+import {maxStrokeRadius} from './pen-renderer.js';
 /** Immutable centerline clipping against the swept circular eraser. Units: page coordinates. */
 const EPS=1e-10;
 const validPoint=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y);
@@ -69,7 +70,7 @@ let counter=0;
 const defaultId=()=>globalThis.crypto?.randomUUID?.()||`erase_${Date.now().toString(36)}_${(++counter).toString(36)}`;
 /**
  * Invalid eraser coordinates or radius<=0 are a safe no-op. Invalid source data throws.
- * includeStrokeWidth adds half width to radius to keep round fragment caps clear of eraser.
+ * includeStrokeWidth adds rendered maximum radius to radius to keep round fragment caps clear of eraser.
  * removedIds includes ALL replaced originals (even those with surviving fragments).
  */
 export function eraseStrokes(strokes,from,to=from,radius=20,{idFactory=defaultId,includeStrokeWidth=false}={}){
@@ -84,7 +85,7 @@ export function eraseStrokes(strokes,from,to=from,radius=20,{idFactory=defaultId
  }
  const result=[],removedIds=[],replacements=[];
  for(const stroke of strokes){
- const r=radius+(includeStrokeWidth&&Number.isFinite(stroke.width)&&stroke.width>0?stroke.width/2:0);
+ const r=radius+(includeStrokeWidth?maxStrokeRadius(stroke):0);
  const clipped=clipPoints(stroke.points,from,to,r);
  if(!clipped.changed){result.push(stroke);continue;}
  const fragmentIds=[];

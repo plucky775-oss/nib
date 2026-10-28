@@ -12,7 +12,7 @@ export function createPage(pages,current){
  const bookId=notebookId(current),siblings=pagesFor(pages,bookId),lastOrder=Math.max(order(current),...siblings.map(order));
  if(lastOrder>=Number.MAX_SAFE_INTEGER)throw Error('페이지 순서를 더 추가할 수 없습니다.');
  const blank=makeNote(),settings=validateNote(current);
- return {...blank,notebookId:bookId,title:current.title,pageOrder:lastOrder+1,favorite:settings.favorite,font:settings.font,fontSize:settings.fontSize,paper:settings.paper,smooth:settings.smooth,mode:settings.mode,shapeCorrection:settings.shapeCorrection};
+ return {...blank,notebookId:bookId,title:current.title,pageOrder:lastOrder+1,favorite:settings.favorite,penKind:settings.penKind,cover:settings.cover,font:settings.font,fontSize:settings.fontSize,paper:settings.paper,paperTheme:settings.paperTheme,smooth:settings.smooth,mode:settings.mode,shapeCorrection:settings.shapeCorrection};
 }
 /** Import as independent copies. IDs within raw strokes/groups remain intact;
  * only page identity and notebook membership are remapped. Call once per import
