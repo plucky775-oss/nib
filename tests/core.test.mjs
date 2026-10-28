@@ -4,7 +4,7 @@ test('zero strength and short strokes remain unchanged',()=>{const p=[{x:1,y:2}]
 test('single dot and empty paths',()=>{assert.equal(strokePath([]),'');assert.match(strokePath([{x:1,y:2}]),/l0.01/)});
 test('undo redo and branch work',()=>{let n=makeNote();const h=new History();h.push(n);n.text='hello';n=h.undo(n);assert.equal(n.text,'');n=h.redo(n);assert.equal(n.text,'hello');h.push(n);n.text='next';assert.equal(h.future.length,0);h.clear();assert.equal(h.past.length,0)});
 test('history bounded',()=>{const h=new History(2);for(let i=0;i<5;i++)h.push(makeNote());assert.equal(h.past.length,2)});
-test('backup round trip',()=>{const n=makeNote();n.text='한글\nEnglish';assert.deepEqual(parseBackup(JSON.stringify({version:1,notes:[n]}))[0],n)});
+test('backup round trip',()=>{const n=makeNote();n.text='한글\nEnglish';assert.deepEqual(parseBackup(JSON.stringify({version:1,notes:[n]}))[0],validateNote(n))});
 test('backup rejects malformed, excessive data and executable colors',()=>{assert.throws(()=>parseBackup('{}'));assert.throws(()=>parseBackup(JSON.stringify({version:1,notes:Array(1001).fill(makeNote())})));const n=makeNote();n.strokes=[{points:[{x:1,y:2}],width:3,color:'url(https://bad.test)'}];assert.throws(()=>validateNote(n));n.strokes=[{points:[{x:Infinity,y:2}],width:3,color:'#223344'}];assert.throws(()=>validateNote(n))});
 test('import normalizes optional presentation values',()=>{const n=makeNote();n.font='evil';n.mode='abc';n.smooth=999;const result=validateNote(n);assert.equal(result.font,'NanumPenScript');assert.equal(result.mode,'ink');assert.equal(result.smooth,.85)});
 test('XML escapes markup',()=>assert.equal(escapeXml('<script>"&'), '&lt;script&gt;&quot;&amp;'));

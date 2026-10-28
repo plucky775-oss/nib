@@ -1,11 +1,11 @@
-/** Hit-test only caller-supplied actual glyph bounds intersected with row clips.
- * Pass targets in paint order (bottom to top), not enclosing paragraph boxes.
+/** Hit-test durable object bounds supplied by the renderer.
+ * Pass targets in paint order (bottom to top); provenance may be empty/missing.
  * This helper never changes strokes, source IDs, target objects, or note data.
  */
 export function hitTestText(point,targets){
  if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y)||!Array.isArray(targets))return null;
  for(let i=targets.length-1;i>=0;i--){const target=targets[i],b=target?.bounds;
-  if(!target||typeof target.groupId!=='string'||!target.groupId||!Array.isArray(target.strokeIds)||!target.strokeIds.length||target.strokeIds.some(id=>typeof id!=='string'||!id))continue;
+  if(!target||typeof target.groupId!=='string'||!target.groupId)continue;
   if(!b||!['x','y','width','height'].every(k=>Number.isFinite(b[k]))||b.width<=0||b.height<=0)continue;
   if(point.x>=b.x&&point.x<=b.x+b.width&&point.y>=b.y&&point.y<=b.y+b.height)return target;
  }
