@@ -61,9 +61,10 @@ function dom(){
  for(const drawingTool of ['select','freehand','line','arrow','rectangle','ellipse','triangle','diamond','table'])buttons.push({...element(),dataset:{drawingTool}});
  root=element();root.hidden=false;root.getElementById=get;return {root,get,buttons,dispatch,send:(type,x=100,y=100,extra={})=>dispatch(get('canvas'),type,{clientX:20+x/2,clientY:30+y/2,...extra}),choose:type=>dispatch(buttons.find(b=>b.dataset.drawingTool===type),'click'),click:id=>dispatch(get(id),'click'),rect};
 }
-function appHarness(){
+function appHarness({nativeTouch=false,detectTouch=false}={}){
  const original=page(),other=page(),ui=dom(),counts={},history=new History(),hit=name=>()=>counts[name]=(counts[name]||0)+1;
- const scope={note:original,notes:[original,other],drawing:null,drawingTools:null,pageSwipe:null,tool:'pen',switching:false,history,activeRecognition:{noteId:original.id,controller:{abort:hit('abort')}},recognitionResults:new Map([[original.id,'result'],[other.id,'other']]),retryWarnings:new Set([original.id,other.id]),converted:new Map([[original.id,'result'],[other.id,'other']]),clearSelection:hit('clear'),autoChanged:hit('auto'),dirty(){hit('dirty')();scope.notes=scope.notes.map(n=>n.id===scope.note.id?scope.note:n)},render(){hit('render')();scope.drawingTools?.render()},stopAuto:hit('stop'),toast:hit('toast'),pagesFor,notebookId,blankPaperPoint,textTargets:()=>scope.note.showOriginal?[]:scope.note.convertedGroups.map(g=>({groupId:g.id,strokeIds:g.strokeIds,bounds:g.bounds})),switchNote:async id=>{scope.note=scope.notes.find(n=>n.id===id)},effectiveFont:()=>original.font,showEraser:hit('eraser'),$:ui.get,fetch(){throw Error('Drawing must not use a network request')},mountDrawingTools(options){scope.options=options;return mountDrawingTools({...options,root:ui.root})},mountPageSwipe(options){scope.swipeOptions=options;return mountPageSwipe({...options,root:ui.root})}};
+ ui.root.scrollingElement={scrollTop:200};ui.root.documentElement={scrollTop:500};ui.root.defaultView=detectTouch?{TouchEvent:class TouchEvent{}}:{};ui.get('canvas').ownerDocument=ui.root;
+ const scope={document:ui.root,note:original,notes:[original,other],drawing:null,drawingTools:null,pageSwipe:null,tool:'pen',switching:false,history,activeRecognition:{noteId:original.id,controller:{abort:hit('abort')}},recognitionResults:new Map([[original.id,'result'],[other.id,'other']]),retryWarnings:new Set([original.id,other.id]),converted:new Map([[original.id,'result'],[other.id,'other']]),clearSelection:hit('clear'),autoChanged:hit('auto'),dirty(){hit('dirty')();scope.notes=scope.notes.map(n=>n.id===scope.note.id?scope.note:n)},render(){hit('render')();scope.drawingTools?.render()},stopAuto:hit('stop'),toast:hit('toast'),pagesFor,notebookId,blankPaperPoint,textTargets:()=>scope.note.showOriginal?[]:scope.note.convertedGroups.map(g=>({groupId:g.id,strokeIds:g.strokeIds,bounds:g.bounds})),switchNote:async id=>{scope.note=scope.notes.find(n=>n.id===id)},effectiveFont:()=>original.font,showEraser:hit('eraser'),$:ui.get,fetch(){throw Error('Drawing must not use a network request')},mountDrawingTools(options){scope.options=options;return mountDrawingTools({...options,root:ui.root})},mountPageSwipe(options){scope.swipeOptions=options;return mountPageSwipe({...options,root:ui.root,...(detectTouch?{}:{nativeTouch})})}};
  ui.get('width').value='3';ui.get('color').value='#223247';ui.get('pan-page').checked=true;
  vm.createContext(scope);vm.runInContext(piece('function endStroke(','function appendSamples('),scope);
  // Install the actual legacy pointer-cancel handlers before the drawing module.
@@ -162,8 +163,8 @@ test('browser interruption reports cancellation and next drawing gesture still w
 test('outside-canvas palm scrolling is blocked only during actual ink or drawing gesture',()=>{const handlers={};let active=false;const scope={drawing:null,drawingTools:{hasGesture:()=>active},document:{addEventListener(name,fn,options){handlers[name]={fn,options}}}};vm.createContext(scope);vm.runInContext(piece("for(const name of ['touchmove','wheel'])", "$('pan-page').onchange="),scope);for(const name of ['touchmove','wheel']){let prevented=0;const e={cancelable:true,preventDefault(){prevented++}};handlers[name].fn(e);assert.equal(prevented,0);active=true;handlers[name].fn(e);assert.equal(prevented,1);active=false;scope.drawing={pointerId:1};handlers[name].fn(e);assert.equal(prevented,2);scope.drawing=null;assert.equal(handlers[name].options.passive,false);assert.equal(handlers[name].options.capture,true);}});
 
 
-function navigationHarness(){
- const h=appHarness(),previous={...makeNote(),notebookId:h.original.notebookId,pageOrder:0},next={...makeNote(),notebookId:h.original.notebookId,pageOrder:2};
+function navigationHarness(options={}){
+ const h=appHarness(options),previous={...makeNote(),notebookId:h.original.notebookId,pageOrder:0},next={...makeNote(),notebookId:h.original.notebookId,pageOrder:2};
  h.original.pageOrder=1;h.scope.notes=[h.other,next,h.original,previous];h.ui.get('pan-page').checked=false;h.ui.get('touch').checked=false;
  h.navigations=[];h.scope.switchNote=async id=>{h.navigations.push(id);if(h.navigationGate)await h.navigationGate;if(h.saveFails)return false;h.scope.note=h.scope.notes.find(n=>n.id===id);h.scope.drawingTools.render();return true};
  h.previous=previous;h.next=next;return h;
@@ -228,7 +229,7 @@ test('enabled page navigation swipes left and right even after eraser or lasso w
 test('navigation mode overrides retained finger-writing preference without clearing that preference',async()=>{
  const h=navigationHarness(),before=structuredClone(h.scope.notes);h.ui.get('touch').checked=true;enablePan(h);assert.equal(h.ui.get('touch').disabled,true);swipe(h);await settle();assert.equal(h.scope.note.id,h.next.id);assert.equal(h.ui.get('touch').checked,true);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);
 });
-test('navigation candidate does not suppress native vertical scrolling before horizontal intent',async()=>{
+test('pointer fallback candidate leaves vertical browser scrolling unblocked before horizontal intent',async()=>{
  const h=navigationHarness(),native=mountNativeScrollGuard(h),before=structuredClone(h.scope.notes);enablePan(h);
  const down=finger(h,'pointerdown',600,1000);assert.notEqual(down.defaultPrevented,true);assert.equal(h.scope.pageSwipe.hasGesture(),true);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);
  for(const type of ['touchmove','wheel'])assert.notEqual(native(type).defaultPrevented,true);
@@ -239,7 +240,7 @@ test('navigation candidate does not suppress native vertical scrolling before ho
  // in page-pan CSS; the default writing canvas intentionally stays touch-action:none.
  assert.match(readFileSync(new URL('../src/styles.css',import.meta.url),'utf8'),/#canvas\.page-pan\{[^}]*touch-action:pan-y/);
 });
-test('horizontal navigation intent blocks native scrolling only until completion or cancellation',async()=>{
+test('pointer fallback horizontal intent blocks native scrolling until completion or cancellation',async()=>{
  for(const ending of ['pointerup','pointercancel']){const h=navigationHarness(),native=mountNativeScrollGuard(h);enablePan(h);finger(h,'pointerdown',600,1000);const move=finger(h,'pointermove',520,1002);assert.equal(move.defaultPrevented,true);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),true);for(const type of ['touchmove','wheel'])assert.equal(native(type).defaultPrevented,true);finger(h,ending,400,1002);await settle();assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);assert.notEqual(native('touchmove').defaultPrevented,true);assert.deepEqual(h.navigations,ending==='pointerup'?[h.next.id]:[]);assert.equal(h.history.past.length,0);}
 });
 test('navigation mode still protects raw ink text and drawings from blank-paper swipe or direct edit',async()=>{
@@ -247,4 +248,39 @@ test('navigation mode still protects raw ink text and drawings from blank-paper 
 });
 test('navigation-mode save refusal and pending repeated swipe retain original page and all content',async()=>{
  const h=navigationHarness(),before=structuredClone(h.scope.notes);let release;h.navigationGate=new Promise(resolve=>release=resolve);h.saveFails=true;enablePan(h);swipe(h);swipe(h);assert.deepEqual(h.navigations,[h.next.id]);assert.equal(h.scope.note.id,h.original.id);release();await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);h.navigationGate=null;h.saveFails=false;swipe(h);await settle();assert.equal(h.scope.note.id,h.next.id);
+});
+
+
+function nativeEvent(h,type,x=600,y=1000,extra={}){
+ const touch={identifier:42,clientX:20+x/2,clientY:30+y/2,radiusX:5,radiusY:5,touchType:'direct'},ending=type==='touchend'||type==='touchcancel';
+ return h.ui.dispatch(h.ui.get('canvas'),type,{cancelable:true,touches:ending?[]:[touch],targetTouches:ending?[]:[touch],changedTouches:[touch],...extra});
+}
+function nativeSwipe(h,direction=1){nativeEvent(h,'touchstart');nativeEvent(h,'touchmove',600-direction*180,1000);nativeEvent(h,'touchend',600-direction*200,1000)}
+
+test('native touch ownership survives pointercancel and flips once on touchend with or without initial pointerdown',async()=>{
+ for(const withPointer of [false,true]){const h=navigationHarness({detectTouch:true}),before=structuredClone(h.scope.notes);enablePan(h);mountNativeScrollGuard(h);if(withPointer)finger(h,'pointerdown',600,1000);const start=nativeEvent(h,'touchstart');assert.equal(start.defaultPrevented,true);assert.equal(h.scope.pageSwipe.hasGesture(),true);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),true);finger(h,'pointercancel',600,1000);finger(h,'lostpointercapture',600,1000);assert.equal(h.scope.pageSwipe.hasGesture(),true);const move=nativeEvent(h,'touchmove',400,1000);assert.equal(move.defaultPrevented,true);assert.deepEqual(h.navigations,[]);nativeEvent(h,'touchend',400,1000);finger(h,'pointerup',400,1000);nativeEvent(h,'touchend',400,1000);await settle();assert.deepEqual(h.navigations,[h.next.id]);assert.equal(h.scope.note.id,h.next.id);assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);assert.equal(h.counts.dirty,undefined);assert.equal(h.ui.root.scrollingElement.scrollTop,200);}
+});
+test('explicit native-touch mode navigates both directions through actual same-notebook callback',async()=>{
+ const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.notes);enablePan(h);nativeSwipe(h,1);await settle();nativeSwipe(h,-1);await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.navigations,[h.next.id,h.original.id]);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);
+});
+test('native horizontal direction lock tolerates diagonal ending without moving viewport or editing content',async()=>{
+ const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.notes);enablePan(h);nativeEvent(h,'touchstart',600,800);nativeEvent(h,'touchmove',450,910);nativeEvent(h,'touchmove',400,940);nativeEvent(h,'touchend',400,940);await settle();assert.deepEqual(h.navigations,[h.next.id]);assert.equal(h.ui.root.scrollingElement.scrollTop,200);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);
+});
+test('native vertical direction lock calls actual app scroll callback and cannot later become a page flip',async()=>{
+ const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.notes);enablePan(h);mountNativeScrollGuard(h);nativeEvent(h,'touchstart');finger(h,'pointercancel',600,1000);const first=nativeEvent(h,'touchmove',604,920);assert.equal(first.defaultPrevented,true);assert.equal(h.ui.root.scrollingElement.scrollTop,240);nativeEvent(h,'touchmove',400,880);assert.equal(h.ui.root.scrollingElement.scrollTop,260);nativeEvent(h,'touchend',400,880);await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);assert.equal(h.counts.dirty,undefined);
+});
+test('native vertical scrolling uses documentElement fallback when scrollingElement is unavailable',()=>{
+ const h=navigationHarness({nativeTouch:true});enablePan(h);h.ui.root.scrollingElement=null;nativeEvent(h,'touchstart');nativeEvent(h,'touchmove',600,920);nativeEvent(h,'touchend',600,920);assert.equal(h.ui.root.documentElement.scrollTop,540);assert.deepEqual(h.navigations,[]);assert.equal(h.history.past.length,0);
+});
+test('native touch on visible raw ink text and drawings never owns navigation or manually scrolls',async()=>{
+ for(const point of [{x:95,y:100},{x:120,y:220},{x:400,y:500}]){const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.notes);enablePan(h);const start=nativeEvent(h,'touchstart',point.x,point.y);assert.notEqual(start.defaultPrevented,true);assert.equal(h.scope.pageSwipe.hasGesture(),false);nativeEvent(h,'touchmove',point.x-200,point.y-100);nativeEvent(h,'touchend',point.x-200,point.y-100);await settle();assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.notes,before);assert.equal(h.ui.root.scrollingElement.scrollTop,200);assert.equal(h.history.past.length,0);}
+});
+test('native mode preserves default direct-drawing drag priority rather than stealing it for navigation',async()=>{
+ const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.note);finger(h,'pointerdown',400,500);const start=nativeEvent(h,'touchstart',400,500);assert.notEqual(start.defaultPrevented,true);assert.equal(h.scope.drawingTools.hasGesture(),true);assert.equal(h.scope.pageSwipe.hasGesture(),false);finger(h,'pointermove',600,550);nativeEvent(h,'touchmove',600,550);finger(h,'pointerup',600,550);nativeEvent(h,'touchend',600,550);await settle();assert.deepEqual(h.navigations,[]);assert.equal(h.history.past.length,1);assert.deepEqual(h.scope.note.strokes,before.strokes);assert.deepEqual(h.scope.note.convertedGroups,before.convertedGroups);assert.equal(h.scope.note.drawingObjects[0].bounds.x,500);assert.equal(h.ui.root.scrollingElement.scrollTop,200);
+});
+test('native touch cancellation does not navigate and a later independent gesture can recover',async()=>{
+ const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.notes);enablePan(h);nativeEvent(h,'touchstart');nativeEvent(h,'touchmove',400,1000);nativeEvent(h,'touchcancel',400,1000);nativeEvent(h,'touchend',400,1000);await settle();assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.notes,before);nativeSwipe(h);await settle();assert.deepEqual(h.navigations,[h.next.id]);assert.equal(h.history.past.length,0);
+});
+test('native pending navigation and save refusal cannot create a duplicate flip or change page content',async()=>{
+ const h=navigationHarness({nativeTouch:true}),before=structuredClone(h.scope.notes);let release;h.navigationGate=new Promise(resolve=>release=resolve);h.saveFails=true;enablePan(h);nativeSwipe(h);nativeSwipe(h);assert.deepEqual(h.navigations,[h.next.id]);release();await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.scope.notes,before);h.navigationGate=null;h.saveFails=false;nativeSwipe(h);await settle();assert.equal(h.scope.note.id,h.next.id);assert.equal(h.navigations.length,2);assert.equal(h.history.past.length,0);
 });

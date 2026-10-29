@@ -1,12 +1,13 @@
 /** Blank-paper, single-touch page navigation. No note writes or page creation. */
-export function mountPageSwipe({canvas,getPageId,canStart,isBlank,navigate,beforeStart=()=>{},root=document,clock=Date.now}){
- let gesture=null,busy=false,disposed=false;const options={capture:true,passive:false};
+export function mountPageSwipe({canvas,getPageId,canStart,isBlank,navigate,beforeStart=()=>{},root=document,clock=Date.now,nativeTouch=!!canvas.ownerDocument?.defaultView?.TouchEvent,scrollByDelta=()=>{},scrollBy=scrollByDelta}){
+ let gesture=null,busy=false,disposed=false,nativeBlocked=false;const penPointers=new Set();const options={capture:true,passive:false};
  const consume=(e,block=false)=>{if(block&&e.cancelable!==false)e.preventDefault();e.stopImmediatePropagation();};
- function release(g){try{if(canvas.hasPointerCapture?.(g.id))canvas.releasePointerCapture(g.id)}catch{}}
+ function release(g){if(g.native)return;try{if(canvas.hasPointerCapture?.(g.id))canvas.releasePointerCapture(g.id)}catch{}}
  function cancel(){const g=gesture;gesture=null;if(g)release(g);}
  const stableSize=g=>{const r=canvas.getBoundingClientRect();return r&&Number.isFinite(r.width)&&Number.isFinite(r.height)&&Math.abs(r.width-g.width)<=1&&Math.abs(r.height-g.height)<=1;};
  const allowed=()=>{try{return !disposed&&!busy&&canStart()===true}catch{return false}};
  function down(e){
+  if(nativeTouch)return;
   if(gesture){if(e.pointerId!==gesture.id)cancel();return;}
   if(!allowed()||e.pointerType!=='touch'||e.isPrimary===false||e.button>0||e.width>40||e.height>40)return;
   const rect=canvas.getBoundingClientRect();if(!rect||!Number.isFinite(rect.width)||!Number.isFinite(rect.height)||rect.width<=0||rect.height<=0)return;
@@ -21,19 +22,66 @@ export function mountPageSwipe({canvas,getPageId,canStart,isBlank,navigate,befor
   if(!allowed()||!stableSize(gesture)||getPageId()!==gesture.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||(Math.abs(dy)>=20&&Math.abs(dy)>Math.abs(dx))||Math.abs(dy)>60){cancel();return false;}
   gesture.horizontal=Math.abs(dx)>=10&&Math.abs(dx)>Math.abs(dy);return gesture.horizontal;
  }
- function move(e){if(!gesture||e.pointerId!==gesture.id)return;const horizontal=intent(e.clientX,e.clientY);consume(e,horizontal);}
- // Native touch events arbitrate scrolling only; pointerup is the sole navigator.
- // No touchstart preventDefault: Safari retains vertical pan-y and pinch handling.
- function touchStart(e){if(gesture&&e.touches?.length>1)cancel();}
- function touchMove(e){if(!gesture)return;if(e.touches?.length!==1){cancel();return;}const touch=e.touches[0];if(intent(touch.clientX,touch.clientY)&&e.cancelable!==false)e.preventDefault();}
- function up(e){if(!gesture||e.pointerId!==gesture.id)return;consume(e,Math.abs(e.clientX-gesture.x)>=10&&Math.abs(e.clientX-gesture.x)>Math.abs(e.clientY-gesture.y));const g=gesture,dx=e.clientX-g.x,dy=e.clientY-g.y,elapsed=clock()-g.startedAt;cancel();if(!allowed()||!stableSize(g)||getPageId()!==g.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||elapsed<0||elapsed>1500||Math.abs(dx)<80||Math.abs(dx)<Math.abs(dy)*2||Math.abs(dy)>60)return;
+ function move(e){if(nativeTouch)return;if(!gesture||e.pointerId!==gesture.id)return;const horizontal=intent(e.clientX,e.clientY);consume(e,horizontal);}
+ // Touch-capable browsers use touchend as the only navigator. Pointer-only
+ // fallback retains native pan-y arbitration; the two paths never navigate together.
+ function touchStart(e){
+  if(!nativeTouch){if(gesture&&e.touches?.length>1)cancel();return;}
+  if(e.touches?.length!==1){if(gesture){cancel();nativeBlocked=true;}return;}
+  if(gesture||nativeBlocked||penPointers.size||!allowed()||e.cancelable===false)return;
+  const t=e.touches[0];if(t.touchType==='stylus'||(t.radiusX>40&&t.radiusY>40))return;
+  const r=canvas.getBoundingClientRect();if(!r||!Number.isFinite(r.width)||!Number.isFinite(r.height)||r.width<=0||r.height<=0)return;
+  const x=(t.clientX-r.left)*900/r.width,y=(t.clientY-r.top)*1200/r.height;
+  if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>900||y>1200||!isBlank({x,y},e))return;
+  const pageId=getPageId();if(pageId==null)return;
+  beforeStart();if(!allowed()||getPageId()!==pageId)return;
+  gesture={native:true,id:t.identifier,pageId,x:t.clientX,y:t.clientY,lastY:t.clientY,startedAt:clock(),width:r.width,height:r.height,axis:null};
+  e.preventDefault();
+ }
+ function nativeValid(){return gesture&&allowed()&&stableSize(gesture)&&getPageId()===gesture.pageId;}
+ function nativeIntent(t){
+  if(!nativeValid()){cancel();nativeBlocked=true;return false;}
+  const dx=t.clientX-gesture.x,dy=t.clientY-gesture.y;
+  if(!Number.isFinite(dx)||!Number.isFinite(dy)){cancel();nativeBlocked=true;return false;}
+  if(!gesture.axis&&Math.max(Math.abs(dx),Math.abs(dy))>=12){
+   if(Math.abs(dx)>=Math.abs(dy)*1.25)gesture.axis='horizontal';
+   else if(Math.abs(dy)>Math.abs(dx)*1.25)gesture.axis='vertical';
+  }
+  const delta=gesture.lastY-t.clientY;gesture.lastY=t.clientY;
+  if(gesture.axis==='vertical'&&delta){try{scrollBy(delta)}catch{cancel();nativeBlocked=true;return false;}}
+  return true;
+ }
+ function nativeMove(e){
+  if(!gesture?.native)return;
+  if(e.cancelable!==false)e.preventDefault();
+  if(e.touches?.length!==1){cancel();nativeBlocked=true;return;}
+  const t=Array.from(e.touches).find(t=>t.identifier===gesture.id);if(!t){cancel();nativeBlocked=true;return;}
+  nativeIntent(t);
+ }
+ function touchEnd(e){
+  if(!nativeTouch)return;
+  if(!gesture?.native){if(!e.touches?.length)nativeBlocked=false;return;}
+  const t=Array.from(e.changedTouches||[]).find(t=>t.identifier===gesture.id);if(!t)return;
+  if(e.cancelable!==false)e.preventDefault();
+  if(!nativeIntent(t)){if(!e.touches?.length)nativeBlocked=false;return;}
+  const g=gesture,dx=t.clientX-g.x,elapsed=clock()-g.startedAt;cancel();
+  nativeBlocked=!!e.touches?.length;
+  if(g.axis!=='horizontal'||elapsed<0||elapsed>3000||Math.abs(dx)<60||!allowed())return;
+  performNavigate(dx<0?1:-1);
+ }
+ function touchCancel(e){if(!nativeTouch)return;cancel();nativeBlocked=!!e.touches?.length;}
+ function globalTouchStart(e){if(nativeTouch&&e.touches?.length>1&&gesture){cancel();nativeBlocked=true;}}
+ function performNavigate(direction){busy=true;try{Promise.resolve(navigate(direction)).catch(()=>{}).finally(()=>{busy=false})}catch{busy=false;}}
+ function touchMove(e){if(nativeTouch){nativeMove(e);return;}if(!gesture)return;if(e.touches?.length!==1){cancel();return;}const touch=e.touches[0];if(intent(touch.clientX,touch.clientY)&&e.cancelable!==false)e.preventDefault();}
+ function up(e){if(nativeTouch)return;if(!gesture||e.pointerId!==gesture.id)return;consume(e,Math.abs(e.clientX-gesture.x)>=10&&Math.abs(e.clientX-gesture.x)>Math.abs(e.clientY-gesture.y));const g=gesture,dx=e.clientX-g.x,dy=e.clientY-g.y,elapsed=clock()-g.startedAt;cancel();if(!allowed()||!stableSize(g)||getPageId()!==g.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||elapsed<0||elapsed>1500||Math.abs(dx)<80||Math.abs(dx)<Math.abs(dy)*2||Math.abs(dy)>60)return;
   busy=true;try{Promise.resolve(navigate(dx<0?1:-1)).catch(()=>{}).finally(()=>{busy=false})}catch{busy=false;}
  }
- function interrupted(e){if(gesture&&e.pointerId===gesture.id){consume(e);cancel();}}
- function otherPointer(e){if(gesture&&(e.pointerType==='pen'||e.pointerId!==gesture.id))cancel();}
- function hidden(){if(root.hidden)cancel();}
- const listeners=[['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',interrupted],['lostpointercapture',interrupted],['touchstart',touchStart],['touchmove',touchMove]];
- listeners.forEach(([name,handler])=>canvas.addEventListener(name,handler,options));root.addEventListener?.('pointerdown',otherPointer,options);root.addEventListener?.('visibilitychange',hidden);
- return {cancel,hasGesture:()=>gesture!==null,blocksNativeScroll:()=>gesture?.horizontal===true,dispose(){cancel();disposed=true;listeners.forEach(([name,handler])=>canvas.removeEventListener(name,handler,options));root.removeEventListener?.('pointerdown',otherPointer,options);root.removeEventListener?.('visibilitychange',hidden);}};
+ function interrupted(e){penPointers.delete(e.pointerId);if(nativeTouch)return;if(gesture&&e.pointerId===gesture.id){consume(e);cancel();}}
+ function otherPointer(e){if(e.pointerType==='pen'){penPointers.add(e.pointerId);if(gesture){cancel();if(nativeTouch)nativeBlocked=true;}}else if(!nativeTouch&&gesture&&e.pointerId!==gesture.id)cancel();}
+ function pointerEnded(e){penPointers.delete(e.pointerId);}
+ function hidden(){if(root.hidden){cancel();penPointers.clear();nativeBlocked=false;}}
+ const listeners=[['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',interrupted],['lostpointercapture',interrupted],['touchstart',touchStart],['touchmove',touchMove],['touchend',touchEnd],['touchcancel',touchCancel]];
+ listeners.forEach(([name,handler])=>canvas.addEventListener(name,handler,options));root.addEventListener?.('pointerdown',otherPointer,options);root.addEventListener?.('visibilitychange',hidden);root.addEventListener?.('touchstart',globalTouchStart,options);root.addEventListener?.('pointerup',pointerEnded,options);root.addEventListener?.('pointercancel',pointerEnded,options);
+ return {cancel,hasGesture:()=>gesture!==null,blocksNativeScroll:()=>gesture?.native===true||gesture?.horizontal===true,dispose(){cancel();disposed=true;listeners.forEach(([name,handler])=>canvas.removeEventListener(name,handler,options));root.removeEventListener?.('pointerdown',otherPointer,options);root.removeEventListener?.('visibilitychange',hidden);root.removeEventListener?.('touchstart',globalTouchStart,options);root.removeEventListener?.('pointerup',pointerEnded,options);root.removeEventListener?.('pointercancel',pointerEnded,options);}};
 }
 
