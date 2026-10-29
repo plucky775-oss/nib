@@ -207,7 +207,7 @@ const library=mountLibrary({getNotes:()=>notes,getCurrent:()=>notebookId(note),d
 // Main-page conversion never switches notebook or page. Keep the existing
 // consent and request-budget path for both whole-page and selected conversion.
 $('convert-page').onclick=()=>{if(selectedIds.length)$('selection-convert').onclick();else if(selectedObjectIds.length)toast('이미 변환한 글입니다. 선택 폰트 적용이나 글·크기 수정을 사용하세요.');else $('recognize').onclick();};
-drawingTools=mountDrawingTools({getNote:()=>note,beforeGesture:()=>{endStroke();clearSelection();stopAuto('그림 작업 중에는 자동 글씨 변환을 껐습니다.');$('pan-page').checked=false;$('canvas').classList.remove('panning','erasing');},activatePen:()=>$('pen').onclick(),openPen:()=>$('open-pen').click(),getStyle:()=>({color:$('color').value,width:Number($('width').value),font:effectiveFont(),fontSize:note.fontSize}),apply:(next,message)=>{
+drawingTools=mountDrawingTools({getNote:()=>note,beforeGesture:()=>{endStroke();clearSelection();stopAuto('그림 작업 중에는 자동 글씨 변환을 껐습니다.');$('pan-page').checked=false;$('canvas').classList.remove('page-pan','erasing');$('touch').disabled=false;},activatePen:()=>$('pen').onclick(),openPen:()=>$('open-pen').click(),getStyle:()=>({color:$('color').value,width:Number($('width').value),font:effectiveFont(),fontSize:note.fontSize}),apply:(next,message)=>{
  if(next.id!==note.id)return false;history.push(note);
  if(activeRecognition?.noteId===note.id){activeRecognition.discardResult=true;activeRecognition.controller.abort();}
  note=next;recognitionResults.delete(note.id);retryWarnings.delete(note.id);converted.delete(note.id);autoChanged();dirty();render();$('auto-status').textContent=message||'그림을 적용했습니다. 실행 취소로 되돌릴 수 있어요.';return true;
