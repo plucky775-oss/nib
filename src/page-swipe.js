@@ -1,7 +1,7 @@
 /** Blank-paper, single-touch page navigation. No note writes or page creation. */
 export function mountPageSwipe({canvas,getPageId,canStart,isBlank,navigate,beforeStart=()=>{},root=document,clock=Date.now}){
  let gesture=null,busy=false,disposed=false;const options={capture:true,passive:false};
- const consume=e=>{if(e.cancelable!==false)e.preventDefault();e.stopImmediatePropagation();};
+ const consume=(e,block=false)=>{if(block&&e.cancelable!==false)e.preventDefault();e.stopImmediatePropagation();};
  function release(g){try{if(canvas.hasPointerCapture?.(g.id))canvas.releasePointerCapture(g.id)}catch{}}
  function cancel(){const g=gesture;gesture=null;if(g)release(g);}
  const stableSize=g=>{const r=canvas.getBoundingClientRect();return r&&Number.isFinite(r.width)&&Number.isFinite(r.height)&&Math.abs(r.width-g.width)<=1&&Math.abs(r.height-g.height)<=1;};
@@ -14,17 +14,26 @@ export function mountPageSwipe({canvas,getPageId,canStart,isBlank,navigate,befor
   if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>900||y>1200||!isBlank({x,y},e))return;
   const pageId=getPageId();if(pageId===undefined||pageId===null)return;
   beforeStart();if(!allowed()||getPageId()!==pageId)return;
-  gesture={id:e.pointerId,pageId,x:e.clientX,y:e.clientY,startedAt:clock(),width:rect.width,height:rect.height};
+  gesture={id:e.pointerId,pageId,x:e.clientX,y:e.clientY,startedAt:clock(),width:rect.width,height:rect.height,horizontal:false};
   consume(e);try{canvas.setPointerCapture(e.pointerId)}catch{cancel();}
  }
- function move(e){if(!gesture||e.pointerId!==gesture.id)return;consume(e);const dx=e.clientX-gesture.x,dy=e.clientY-gesture.y;if(!allowed()||!stableSize(gesture)||getPageId()!==gesture.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||(Math.abs(dy)>=20&&Math.abs(dy)>Math.abs(dx))||Math.abs(dy)>60)cancel();}
- function up(e){if(!gesture||e.pointerId!==gesture.id)return;consume(e);const g=gesture,dx=e.clientX-g.x,dy=e.clientY-g.y,elapsed=clock()-g.startedAt;cancel();if(!allowed()||!stableSize(g)||getPageId()!==g.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||elapsed<0||elapsed>1500||Math.abs(dx)<80||Math.abs(dx)<Math.abs(dy)*2||Math.abs(dy)>60)return;
+ function intent(x,y){if(!gesture)return false;const dx=x-gesture.x,dy=y-gesture.y;
+  if(!allowed()||!stableSize(gesture)||getPageId()!==gesture.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||(Math.abs(dy)>=20&&Math.abs(dy)>Math.abs(dx))||Math.abs(dy)>60){cancel();return false;}
+  gesture.horizontal=Math.abs(dx)>=10&&Math.abs(dx)>Math.abs(dy);return gesture.horizontal;
+ }
+ function move(e){if(!gesture||e.pointerId!==gesture.id)return;const horizontal=intent(e.clientX,e.clientY);consume(e,horizontal);}
+ // Native touch events arbitrate scrolling only; pointerup is the sole navigator.
+ // No touchstart preventDefault: Safari retains vertical pan-y and pinch handling.
+ function touchStart(e){if(gesture&&e.touches?.length>1)cancel();}
+ function touchMove(e){if(!gesture)return;if(e.touches?.length!==1){cancel();return;}const touch=e.touches[0];if(intent(touch.clientX,touch.clientY)&&e.cancelable!==false)e.preventDefault();}
+ function up(e){if(!gesture||e.pointerId!==gesture.id)return;consume(e,Math.abs(e.clientX-gesture.x)>=10&&Math.abs(e.clientX-gesture.x)>Math.abs(e.clientY-gesture.y));const g=gesture,dx=e.clientX-g.x,dy=e.clientY-g.y,elapsed=clock()-g.startedAt;cancel();if(!allowed()||!stableSize(g)||getPageId()!==g.pageId||!Number.isFinite(dx)||!Number.isFinite(dy)||elapsed<0||elapsed>1500||Math.abs(dx)<80||Math.abs(dx)<Math.abs(dy)*2||Math.abs(dy)>60)return;
   busy=true;try{Promise.resolve(navigate(dx<0?1:-1)).catch(()=>{}).finally(()=>{busy=false})}catch{busy=false;}
  }
  function interrupted(e){if(gesture&&e.pointerId===gesture.id){consume(e);cancel();}}
  function otherPointer(e){if(gesture&&(e.pointerType==='pen'||e.pointerId!==gesture.id))cancel();}
  function hidden(){if(root.hidden)cancel();}
- const listeners=[['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',interrupted],['lostpointercapture',interrupted]];
+ const listeners=[['pointerdown',down],['pointermove',move],['pointerup',up],['pointercancel',interrupted],['lostpointercapture',interrupted],['touchstart',touchStart],['touchmove',touchMove]];
  listeners.forEach(([name,handler])=>canvas.addEventListener(name,handler,options));root.addEventListener?.('pointerdown',otherPointer,options);root.addEventListener?.('visibilitychange',hidden);
- return {cancel,hasGesture:()=>gesture!==null,dispose(){cancel();disposed=true;listeners.forEach(([name,handler])=>canvas.removeEventListener(name,handler,options));root.removeEventListener?.('pointerdown',otherPointer,options);root.removeEventListener?.('visibilitychange',hidden);}};
+ return {cancel,hasGesture:()=>gesture!==null,blocksNativeScroll:()=>gesture?.horizontal===true,dispose(){cancel();disposed=true;listeners.forEach(([name,handler])=>canvas.removeEventListener(name,handler,options));root.removeEventListener?.('pointerdown',otherPointer,options);root.removeEventListener?.('visibilitychange',hidden);}};
 }
+

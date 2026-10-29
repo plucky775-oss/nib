@@ -188,8 +188,8 @@ test('first/last-page swipe stays in notebook and never creates or crosses into 
 test('swipes starting on raw ink or visible text cannot navigate or consume them as blank paper',async()=>{
  for(const start of [{x:95,y:100},{x:120,y:220}]){const h=navigationHarness(),before=structuredClone(h.scope.note);finger(h,'pointerdown',start.x,start.y);assert.equal(h.scope.pageSwipe.hasGesture(),false);finger(h,'pointerup',start.x+200,start.y);await settle();assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.note,before);assert.equal(h.history.past.length,0);}
 });
-test('finger-writing eraser lasso pan drawing palette and active transition block blank-page flips',async()=>{
- const modes=[h=>h.ui.get('touch').checked=true,h=>h.scope.tool='eraser',h=>h.scope.tool='select',h=>h.ui.get('pan-page').checked=true,h=>h.ui.click('open-drawing'),h=>h.scope.switching=true,h=>h.scope.drawing={pointerId:99}];
+test('without navigation mode finger-writing eraser lasso drawing palette and transition block flips',async()=>{
+ const modes=[h=>h.ui.get('touch').checked=true,h=>h.scope.tool='eraser',h=>h.scope.tool='select',h=>h.ui.click('open-drawing'),h=>h.scope.switching=true,h=>h.scope.drawing={pointerId:99}];
  for(const configure of modes){const h=navigationHarness(),before=structuredClone(h.scope.note);configure(h);swipe(h);await settle();assert.deepEqual(h.navigations,[]);assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.deepEqual(h.scope.note,before);assert.equal(h.history.past.length,0);}
 });
 test('direct drawing touch is disabled by finger writing eraser lasso pan and page transition',()=>{
@@ -209,4 +209,42 @@ test('drawing motion cannot start a swipe and explicit endStroke cancels blank-p
 });
 test('touch navigation helper and controller are included in offline shell cache',()=>{
  const sw=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');for(const name of ['touch-hit','page-swipe'])assert.match(sw,new RegExp(`'\\./src/${name}\\.js'`));
+});
+
+
+function enablePan(h){
+ vm.runInContext(piece("$('pan-page').onchange=", "$('touch').onchange="),h.scope);
+ h.ui.get('pan-page').checked=true;h.ui.get('pan-page').onchange();
+ assert.equal(h.ui.get('canvas').classList.contains('page-pan'),true);
+}
+function mountNativeScrollGuard(h){
+ h.scope.document=h.ui.root;
+ vm.runInContext(piece("for(const name of ['touchmove','wheel'])", "$('pan-page').onchange="),h.scope);
+ return type=>h.ui.dispatch(h.ui.root,type,{cancelable:true});
+}
+test('enabled page navigation swipes left and right even after eraser or lasso was selected',async()=>{
+ for(const tool of ['pen','eraser','select']){const h=navigationHarness(),before=structuredClone(h.scope.notes);h.scope.tool=tool;enablePan(h);swipe(h,1);await settle();assert.equal(h.scope.note.id,h.next.id,tool);swipe(h,-1);await settle();assert.equal(h.scope.note.id,h.original.id,tool);assert.deepEqual(h.navigations,[h.next.id,h.original.id]);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);assert.equal(h.counts.dirty,undefined);}
+});
+test('navigation mode overrides retained finger-writing preference without clearing that preference',async()=>{
+ const h=navigationHarness(),before=structuredClone(h.scope.notes);h.ui.get('touch').checked=true;enablePan(h);assert.equal(h.ui.get('touch').disabled,true);swipe(h);await settle();assert.equal(h.scope.note.id,h.next.id);assert.equal(h.ui.get('touch').checked,true);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);
+});
+test('navigation candidate does not suppress native vertical scrolling before horizontal intent',async()=>{
+ const h=navigationHarness(),native=mountNativeScrollGuard(h),before=structuredClone(h.scope.notes);enablePan(h);
+ const down=finger(h,'pointerdown',600,1000);assert.notEqual(down.defaultPrevented,true);assert.equal(h.scope.pageSwipe.hasGesture(),true);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);
+ for(const type of ['touchmove','wheel'])assert.notEqual(native(type).defaultPrevented,true);
+ const small=finger(h,'pointermove',604,1006);assert.notEqual(small.defaultPrevented,true);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);
+ const vertical=finger(h,'pointermove',606,1080);assert.notEqual(vertical.defaultPrevented,true);assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);assert.notEqual(native('touchmove').defaultPrevented,true);
+ finger(h,'pointerup',350,1000);await settle();assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.notes,before);
+ // This checks policy only. Native vertical scroll is available specifically
+ // in page-pan CSS; the default writing canvas intentionally stays touch-action:none.
+ assert.match(readFileSync(new URL('../src/styles.css',import.meta.url),'utf8'),/#canvas\.page-pan\{[^}]*touch-action:pan-y/);
+});
+test('horizontal navigation intent blocks native scrolling only until completion or cancellation',async()=>{
+ for(const ending of ['pointerup','pointercancel']){const h=navigationHarness(),native=mountNativeScrollGuard(h);enablePan(h);finger(h,'pointerdown',600,1000);const move=finger(h,'pointermove',520,1002);assert.equal(move.defaultPrevented,true);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),true);for(const type of ['touchmove','wheel'])assert.equal(native(type).defaultPrevented,true);finger(h,ending,400,1002);await settle();assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.equal(h.scope.pageSwipe.blocksNativeScroll(),false);assert.notEqual(native('touchmove').defaultPrevented,true);assert.deepEqual(h.navigations,ending==='pointerup'?[h.next.id]:[]);assert.equal(h.history.past.length,0);}
+});
+test('navigation mode still protects raw ink text and drawings from blank-paper swipe or direct edit',async()=>{
+ for(const start of [{x:95,y:100},{x:120,y:220},{x:400,y:500}]){const h=navigationHarness(),before=structuredClone(h.scope.notes);enablePan(h);finger(h,'pointerdown',start.x,start.y);assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.equal(h.scope.drawingTools.hasGesture(),false);finger(h,'pointermove',start.x+220,start.y);finger(h,'pointerup',start.x+220,start.y);await settle();assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);assert.equal(h.ui.get('drawing-palette').hidden,true);}
+});
+test('navigation-mode save refusal and pending repeated swipe retain original page and all content',async()=>{
+ const h=navigationHarness(),before=structuredClone(h.scope.notes);let release;h.navigationGate=new Promise(resolve=>release=resolve);h.saveFails=true;enablePan(h);swipe(h);swipe(h);assert.deepEqual(h.navigations,[h.next.id]);assert.equal(h.scope.note.id,h.original.id);release();await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);h.navigationGate=null;h.saveFails=false;swipe(h);await settle();assert.equal(h.scope.note.id,h.next.id);
 });
