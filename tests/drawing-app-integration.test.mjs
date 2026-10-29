@@ -3,16 +3,18 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {makeNote,validateNote,parseBackup,backupParts,History,PAGE} from '../src/core.js';
-import {createPage,cloneImportedPages} from '../src/notebooks.js';
+import {createPage,cloneImportedPages,pagesFor,notebookId} from '../src/notebooks.js';
 import {createDrawingObject,updateDrawingObject,deleteDrawingObject,duplicateDrawingObject,drawDrawingObject} from '../src/drawing-objects.js';
 import {mountDrawingTools} from '../src/drawing-tools.js';
+import {mountPageSwipe} from '../src/page-swipe.js';
+import {blankPaperPoint} from '../src/touch-hit.js';
 import {renderPagePreview} from '../src/page-preview.js';
 
 const source=readFileSync(new URL('../src/app.js',import.meta.url),'utf8');
 const piece=(start,end)=>{const a=source.indexOf(start),b=source.indexOf(end,a+start.length);assert.ok(a>=0&&b>a,`app source region: ${start}`);return source.slice(a,b)};
 const object=(id='shape',type='rectangle',style={})=>createDrawingObject(type,{x:300,y:400},{x:700,y:700},{id,font:'Gaegu',fontSize:24,text:'도형 글',...style});
 function page(){const n=makeNote();return {...n,title:'그림과 필기',paper:'grid',paperTheme:'blue-frame',cover:'ivory',strokes:[{id:'raw',width:3,color:'#223247',points:[{x:80,y:80,pressure:.2},{x:110,y:120,pressure:.8}]}],text:'기존 글',convertedGroups:[{kind:'text-object',id:'typed',strokeIds:[],text:'기존 글',font:'Gaegu',fontSize:24,bounds:{x:70,y:180,width:200,height:100}}],drawingObjects:[object()]};}
-const settle=async()=>{await Promise.resolve();await Promise.resolve()};
+const settle=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
 
 test('new and legacy notes default to independent empty drawing arrays',()=>{
  const first=makeNote(),second=makeNote();assert.deepEqual(first.drawingObjects,[]);assert.notEqual(first.drawingObjects,second.drawingObjects);
@@ -52,16 +54,16 @@ test('thumbnail drawing limit is bounded at 200 and never truncates saved source
 // Event-capable DOM fake: capture listeners run before existing app listeners,
 // and stopImmediatePropagation prevents simultaneous freehand drawing.
 function dom(){
- const els=new Map(),buttons=[],rect={left:20,top:30,width:450,height:600};
- function element(){return {hidden:true,value:'',checked:false,innerHTML:'',dataset:{},events:new Map(),style:{},classList:{values:new Set(),add(...names){names.forEach(n=>this.values.add(n))},remove(...names){names.forEach(n=>this.values.delete(n))},contains(n){return this.values.has(n)},toggle(n,on){if(on)this.values.add(n);else this.values.delete(n)}},setAttribute(k,v){this[k]=String(v)},replaceChildren(){},addEventListener(type,fn,options){const capture=options===true||options?.capture===true;this.events.set(type,[...(this.events.get(type)||[]),{fn,capture}])},querySelectorAll(){return buttons},getBoundingClientRect:()=>rect,setPointerCapture(id){this.capture=id},hasPointerCapture(id){return this.capture===id},releasePointerCapture(id){if(this.capture===id)this.capture=null},click(){dispatch(this,'click',{})}};}
+ const els=new Map(),buttons=[],rect={left:20,top:30,width:450,height:600};let root;
+ function element(){return {hidden:true,value:'',checked:false,innerHTML:'',dataset:{},events:new Map(),style:{},classList:{values:new Set(),add(...names){names.forEach(n=>this.values.add(n))},remove(...names){names.forEach(n=>this.values.delete(n))},contains(n){return this.values.has(n)},toggle(n,on){if(on)this.values.add(n);else this.values.delete(n)}},setAttribute(k,v){this[k]=String(v)},replaceChildren(){},addEventListener(type,fn,options){const capture=options===true||options?.capture===true;this.events.set(type,[...(this.events.get(type)||[]),{fn,capture}])},removeEventListener(type,fn){this.events.set(type,(this.events.get(type)||[]).filter(listener=>listener.fn!==fn))},querySelectorAll(){return buttons},getBoundingClientRect:()=>rect,setPointerCapture(id){this.capture=id},hasPointerCapture(id){return this.capture===id},releasePointerCapture(id){if(this.capture===id)this.capture=null},click(){dispatch(this,'click',{})}};}
  const get=id=>{if(!els.has(id))els.set(id,element());return els.get(id)};
- function dispatch(el,type,extra={}){const e={button:0,isPrimary:true,pointerType:'pen',pointerId:7,preventDefault(){this.defaultPrevented=true},stopImmediatePropagation(){this.stopped=true},...extra};const listeners=[...(el.events.get(type)||[])].sort((a,b)=>Number(b.capture)-Number(a.capture));for(const {fn} of listeners){fn(e);if(e.stopped)break}return e;}
+ function dispatch(el,type,extra={}){const e={button:0,isPrimary:true,pointerType:'pen',pointerId:7,preventDefault(){this.defaultPrevented=true},stopImmediatePropagation(){this.stopped=true},...extra};if(root&&el!==root){for(const {fn,capture} of root.events.get(type)||[]){if(capture)fn(e);if(e.stopped)return e}}const listeners=[...(el.events.get(type)||[])].sort((a,b)=>Number(b.capture)-Number(a.capture));for(const {fn} of listeners){fn(e);if(e.stopped)break}return e;}
  for(const drawingTool of ['select','freehand','line','arrow','rectangle','ellipse','triangle','diamond','table'])buttons.push({...element(),dataset:{drawingTool}});
- return {root:{getElementById:get},get,buttons,dispatch,send:(type,x=100,y=100,extra={})=>dispatch(get('canvas'),type,{clientX:20+x/2,clientY:30+y/2,...extra}),choose:type=>dispatch(buttons.find(b=>b.dataset.drawingTool===type),'click'),click:id=>dispatch(get(id),'click'),rect};
+ root=element();root.hidden=false;root.getElementById=get;return {root,get,buttons,dispatch,send:(type,x=100,y=100,extra={})=>dispatch(get('canvas'),type,{clientX:20+x/2,clientY:30+y/2,...extra}),choose:type=>dispatch(buttons.find(b=>b.dataset.drawingTool===type),'click'),click:id=>dispatch(get(id),'click'),rect};
 }
 function appHarness(){
  const original=page(),other=page(),ui=dom(),counts={},history=new History(),hit=name=>()=>counts[name]=(counts[name]||0)+1;
- const scope={note:original,notes:[original,other],drawing:null,drawingTools:null,history,activeRecognition:{noteId:original.id,controller:{abort:hit('abort')}},recognitionResults:new Map([[original.id,'result'],[other.id,'other']]),retryWarnings:new Set([original.id,other.id]),converted:new Map([[original.id,'result'],[other.id,'other']]),clearSelection:hit('clear'),autoChanged:hit('auto'),dirty(){hit('dirty')();scope.notes=scope.notes.map(n=>n.id===scope.note.id?scope.note:n)},render(){hit('render')();scope.drawingTools?.render()},stopAuto:hit('stop'),effectiveFont:()=>original.font,showEraser:hit('eraser'),$:ui.get,fetch(){throw Error('Drawing must not use a network request')},mountDrawingTools(options){scope.options=options;return mountDrawingTools({...options,root:ui.root})}};
+ const scope={note:original,notes:[original,other],drawing:null,drawingTools:null,pageSwipe:null,tool:'pen',switching:false,history,activeRecognition:{noteId:original.id,controller:{abort:hit('abort')}},recognitionResults:new Map([[original.id,'result'],[other.id,'other']]),retryWarnings:new Set([original.id,other.id]),converted:new Map([[original.id,'result'],[other.id,'other']]),clearSelection:hit('clear'),autoChanged:hit('auto'),dirty(){hit('dirty')();scope.notes=scope.notes.map(n=>n.id===scope.note.id?scope.note:n)},render(){hit('render')();scope.drawingTools?.render()},stopAuto:hit('stop'),toast:hit('toast'),pagesFor,notebookId,blankPaperPoint,textTargets:()=>scope.note.showOriginal?[]:scope.note.convertedGroups.map(g=>({groupId:g.id,strokeIds:g.strokeIds,bounds:g.bounds})),switchNote:async id=>{scope.note=scope.notes.find(n=>n.id===id)},effectiveFont:()=>original.font,showEraser:hit('eraser'),$:ui.get,fetch(){throw Error('Drawing must not use a network request')},mountDrawingTools(options){scope.options=options;return mountDrawingTools({...options,root:ui.root})},mountPageSwipe(options){scope.swipeOptions=options;return mountPageSwipe({...options,root:ui.root})}};
  ui.get('width').value='3';ui.get('color').value='#223247';ui.get('pan-page').checked=true;
  vm.createContext(scope);vm.runInContext(piece('function endStroke(','function appendSamples('),scope);
  // Install the actual legacy pointer-cancel handlers before the drawing module.
@@ -158,3 +160,53 @@ test('explicit page navigation remains available after drawing and reopening dra
 test('browser interruption reports cancellation and next drawing gesture still works',async()=>{const h=appHarness();h.ui.click('open-drawing');h.ui.choose('line');h.ui.send('pointerdown',30,500,{pointerType:'touch'});h.ui.send('pointermove',100,500,{pointerType:'touch'});h.ui.send('pointercancel',100,500,{pointerType:'touch'});assert.match(h.ui.get('drawing-status').textContent,/중단/);assert.equal(h.history.past.length,0);h.ui.send('pointerdown',30,700,{pointerType:'touch'});h.ui.send('pointerup',130,700,{pointerType:'touch'});await settle();assert.equal(h.history.past.length,1);});
 
 test('outside-canvas palm scrolling is blocked only during actual ink or drawing gesture',()=>{const handlers={};let active=false;const scope={drawing:null,drawingTools:{hasGesture:()=>active},document:{addEventListener(name,fn,options){handlers[name]={fn,options}}}};vm.createContext(scope);vm.runInContext(piece("for(const name of ['touchmove','wheel'])", "$('pan-page').onchange="),scope);for(const name of ['touchmove','wheel']){let prevented=0;const e={cancelable:true,preventDefault(){prevented++}};handlers[name].fn(e);assert.equal(prevented,0);active=true;handlers[name].fn(e);assert.equal(prevented,1);active=false;scope.drawing={pointerId:1};handlers[name].fn(e);assert.equal(prevented,2);scope.drawing=null;assert.equal(handlers[name].options.passive,false);assert.equal(handlers[name].options.capture,true);}});
+
+
+function navigationHarness(){
+ const h=appHarness(),previous={...makeNote(),notebookId:h.original.notebookId,pageOrder:0},next={...makeNote(),notebookId:h.original.notebookId,pageOrder:2};
+ h.original.pageOrder=1;h.scope.notes=[h.other,next,h.original,previous];h.ui.get('pan-page').checked=false;h.ui.get('touch').checked=false;
+ h.navigations=[];h.scope.switchNote=async id=>{h.navigations.push(id);if(h.navigationGate)await h.navigationGate;if(h.saveFails)return false;h.scope.note=h.scope.notes.find(n=>n.id===id);h.scope.drawingTools.render();return true};
+ h.previous=previous;h.next=next;return h;
+}
+function finger(h,type,x,y,extra={}){return h.ui.send(type,x,y,{pointerType:'touch',width:10,height:10,...extra})}
+function swipe(h,direction=1,start={x:600,y:1000}){finger(h,'pointerdown',start.x,start.y);finger(h,'pointermove',start.x-direction*190,start.y+2);finger(h,'pointerup',start.x-direction*200,start.y+2)}
+
+test('default pen finger drags existing drawing immediately with palette closed one undo and no page flip',async()=>{
+ const h=navigationHarness(),before=structuredClone(h.scope.note);const down=finger(h,'pointerdown',400,500);assert.equal(down.defaultPrevented,true);assert.equal(h.scope.drawingTools.hasGesture(),true);assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.equal(h.ui.get('drawing-palette').hidden,true);
+ finger(h,'pointermove',600,550);assert.ok(h.ui.get('drawing-preview').innerHTML);assert.deepEqual(h.scope.note,before);finger(h,'pointerup',600,550);await settle();
+ assert.equal(h.scope.note.id,before.id);assert.deepEqual(h.navigations,[]);assert.equal(h.history.past.length,1);assert.equal(h.scope.note.drawingObjects[0].bounds.x,before.drawingObjects[0].bounds.x+200);assert.equal(h.scope.note.drawingObjects[0].bounds.y,before.drawingObjects[0].bounds.y+50);assert.equal(h.ui.get('drawing-palette').hidden,true);assert.equal(h.scope.drawingTools.isActive(),false);assert.deepEqual(h.scope.note.strokes,before.strokes);assert.deepEqual(h.scope.note.convertedGroups,before.convertedGroups);assert.deepEqual(h.history.undo(h.scope.note),before);
+});
+test('finger tap on existing drawing opens its selected palette without edit undo or page flip',async()=>{
+ const h=navigationHarness(),before=structuredClone(h.scope.note);finger(h,'pointerdown',400,500);finger(h,'pointerup',402,502);await settle();assert.equal(h.ui.get('drawing-palette').hidden,false);assert.equal(h.scope.drawingTools.isActive(),true);assert.equal(h.ui.get('drawing-edit').hidden,false);assert.equal(h.ui.get('drawing-label').value,'도형 글');assert.equal(h.ui.get('open-drawing')['aria-expanded'],'true');assert.equal(h.history.past.length,0);assert.deepEqual(h.scope.note,before);assert.deepEqual(h.navigations,[]);
+});
+test('blank-paper left/right navigation follows sorted same-notebook pages without writes',async()=>{
+ const h=navigationHarness(),before=structuredClone(h.scope.notes);swipe(h,1);await settle();assert.equal(h.scope.note.id,h.next.id);assert.deepEqual(h.navigations,[h.next.id]);swipe(h,-1);await settle();assert.equal(h.scope.note.id,h.original.id);swipe(h,-1);await settle();assert.equal(h.scope.note.id,h.previous.id);assert.deepEqual(h.navigations,[h.next.id,h.original.id,h.previous.id]);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);assert.equal(h.counts.dirty,undefined);
+});
+test('first/last-page swipe stays in notebook and never creates or crosses into another notebook',async()=>{
+ for(const direction of [-1,1]){const h=navigationHarness();h.scope.note=direction<0?h.previous:h.next;const current=h.scope.note,before=structuredClone(h.scope.notes);swipe(h,direction);await settle();assert.equal(h.scope.note,current);assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.notes,before);assert.equal(h.counts.toast,1);assert.equal(h.history.past.length,0);}
+});
+test('swipes starting on raw ink or visible text cannot navigate or consume them as blank paper',async()=>{
+ for(const start of [{x:95,y:100},{x:120,y:220}]){const h=navigationHarness(),before=structuredClone(h.scope.note);finger(h,'pointerdown',start.x,start.y);assert.equal(h.scope.pageSwipe.hasGesture(),false);finger(h,'pointerup',start.x+200,start.y);await settle();assert.deepEqual(h.navigations,[]);assert.deepEqual(h.scope.note,before);assert.equal(h.history.past.length,0);}
+});
+test('finger-writing eraser lasso pan drawing palette and active transition block blank-page flips',async()=>{
+ const modes=[h=>h.ui.get('touch').checked=true,h=>h.scope.tool='eraser',h=>h.scope.tool='select',h=>h.ui.get('pan-page').checked=true,h=>h.ui.click('open-drawing'),h=>h.scope.switching=true,h=>h.scope.drawing={pointerId:99}];
+ for(const configure of modes){const h=navigationHarness(),before=structuredClone(h.scope.note);configure(h);swipe(h);await settle();assert.deepEqual(h.navigations,[]);assert.equal(h.scope.pageSwipe.hasGesture(),false);assert.deepEqual(h.scope.note,before);assert.equal(h.history.past.length,0);}
+});
+test('direct drawing touch is disabled by finger writing eraser lasso pan and page transition',()=>{
+ for(const configure of [h=>h.ui.get('touch').checked=true,h=>h.scope.tool='eraser',h=>h.scope.tool='select',h=>h.ui.get('pan-page').checked=true,h=>h.scope.switching=true]){const h=navigationHarness();configure(h);finger(h,'pointerdown',400,500);assert.equal(h.scope.drawingTools.hasGesture(),false);finger(h,'pointerup',600,500);assert.deepEqual(h.navigations,[]);assert.equal(h.history.past.length,0);}
+});
+test('pending page navigation rejects a second gesture until original transition settles',async()=>{
+ const h=navigationHarness();let release;h.navigationGate=new Promise(resolve=>release=resolve);swipe(h);assert.deepEqual(h.navigations,[h.next.id]);assert.equal(h.scope.note.id,h.original.id);swipe(h);assert.deepEqual(h.navigations,[h.next.id]);release();await settle();assert.equal(h.scope.note.id,h.next.id);h.navigationGate=null;swipe(h,-1);await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.navigations,[h.next.id,h.original.id]);
+});
+test('navigation save refusal leaves original page and content then permits a later retry',async()=>{
+ const h=navigationHarness(),before=structuredClone(h.scope.notes);h.saveFails=true;swipe(h);await settle();assert.equal(h.scope.note.id,h.original.id);assert.deepEqual(h.scope.notes,before);assert.equal(h.history.past.length,0);h.saveFails=false;swipe(h);await settle();assert.equal(h.scope.note.id,h.next.id);assert.equal(h.navigations.length,2);
+});
+test('direct-touch cancellation capture loss second touch and Pencil interruption never commit or page flip',async()=>{
+ for(const interrupt of [h=>finger(h,'pointercancel',550,520),h=>finger(h,'lostpointercapture',550,520),h=>finger(h,'pointerdown',550,520,{pointerId:8}),h=>h.ui.send('pointerdown',550,520,{pointerType:'pen',pointerId:8}),h=>h.scope.endStroke()]){const h=navigationHarness(),before=structuredClone(h.scope.note);finger(h,'pointerdown',400,500);finger(h,'pointermove',550,520);assert.ok(h.ui.get('drawing-preview').innerHTML);interrupt(h);finger(h,'pointerup',600,550);await settle();assert.deepEqual(h.scope.note,before);assert.equal(h.scope.drawingTools.hasGesture(),false);assert.equal(h.ui.get('drawing-preview').innerHTML,'');assert.deepEqual(h.navigations,[]);assert.equal(h.history.past.length,0);}
+});
+test('drawing motion cannot start a swipe and explicit endStroke cancels blank-paper navigation',async()=>{
+ const h=navigationHarness();finger(h,'pointerdown',600,1000);assert.equal(h.scope.pageSwipe.hasGesture(),true);h.scope.endStroke();assert.equal(h.scope.pageSwipe.hasGesture(),false);finger(h,'pointerup',350,1000);await settle();assert.deepEqual(h.navigations,[]);assert.equal(h.history.past.length,0);
+});
+test('touch navigation helper and controller are included in offline shell cache',()=>{
+ const sw=readFileSync(new URL('../public/sw.js',import.meta.url),'utf8');for(const name of ['touch-hit','page-swipe'])assert.match(sw,new RegExp(`'\\./src/${name}\\.js'`));
+});
