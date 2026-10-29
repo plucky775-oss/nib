@@ -1,6 +1,12 @@
+import {maxStrokeRadius} from './pen-renderer.js';
 // Pure geometry. Call moveSelection against the drag-start note for each preview;
 // the caller owns one undo entry, persistence and cancellation of recognition.
 const PAGE={width:900,height:1200};
+const durable=g=>g?.kind==='text-object'&&typeof g.id==='string'&&g.bounds&&['x','y','width','height'].every(k=>Number.isFinite(g.bounds[k]))&&g.bounds.width>0&&g.bounds.height>0&&g.bounds.x>=0&&g.bounds.y>=0&&g.bounds.x+g.bounds.width<=900&&g.bounds.y+g.bounds.height<=1200;
+// Transient visible glyph extent only affects region hits, never saved placement.
+function objectHitBounds(g){const b=g.selectionBounds,o=g.bounds;return b&&['x','y','width','height'].every(k=>Number.isFinite(b[k]))&&b.width>0&&b.height>0&&b.x>=o.x&&b.y>=o.y&&b.x+b.width<=o.x+o.width+.001&&b.y+b.height<=o.y+o.height+.001?b:o;}
+function objectSources(strokes,groups,objectIds){const selected=new Set(objectIds),ids=new Set((groups||[]).filter(g=>durable(g)&&selected.has(g.id)).flatMap(g=>Array.isArray(g.strokeIds)?g.strokeIds:[]));return strokes.filter(s=>ids.has(s.id)).map(s=>s.id);}
+
 export function normalizeSelectionRect(rect){
  if(!rect||!['x','y','width','height'].every(k=>Number.isFinite(rect[k])))return null;
  return {x:Math.min(rect.x,rect.x+rect.width),y:Math.min(rect.y,rect.y+rect.height),width:Math.abs(rect.width),height:Math.abs(rect.height)};
@@ -11,7 +17,7 @@ function segmentHits(a,b,r){
  // Slab intersection catches crossing segments even with both endpoints outside.
  let low=0,high=1;for(const [axis,size] of [['x','width'],['y','height']]){const delta=b[axis]-a[axis],min=r[axis],max=min+r[size];if(Math.abs(delta)<1e-12){if(a[axis]<min||a[axis]>max)return false;}else{let t1=(min-a[axis])/delta,t2=(max-a[axis])/delta;if(t1>t2)[t1,t2]=[t2,t1];low=Math.max(low,t1);high=Math.min(high,t2);if(low>high)return false;}}return true;
 }
-function strokeHits(stroke,rect){const radius=Math.max(0,stroke.width||0)/2,r={x:rect.x-radius,y:rect.y-radius,width:rect.width+2*radius,height:rect.height+2*radius};const p=stroke.points||[];if(p.length===1)return segmentHits(p[0],p[0],r);return p.some((v,i)=>i>0&&segmentHits(p[i-1],v,r));}
+function strokeHits(stroke,rect){const radius=maxStrokeRadius(stroke),r={x:rect.x-radius,y:rect.y-radius,width:rect.width+2*radius,height:rect.height+2*radius};const p=stroke.points||[];if(p.length===1)return segmentHits(p[0],p[0],r);return p.some((v,i)=>i>0&&segmentHits(p[i-1],v,r));}
 export function expandSelection(strokes,groups,ids){
  const existing=new Set(strokes.map(s=>s.id)),selected=new Set([...ids].filter(id=>existing.has(id))),active=activeGroups(strokes,groups);let changed=true;
  while(changed){changed=false;for(const g of active)if(g.strokeIds.some(id=>selected.has(id)))for(const id of g.strokeIds)if(!selected.has(id)){selected.add(id);changed=true;}}
@@ -24,24 +30,24 @@ export function selectStrokesInRect(strokes,groups,rect,options={}){
  for(const g of activeGroups(strokes,groups))if(intersects(r,g.bounds))g.strokeIds.forEach(id=>ids.add(id));
  return expandSelection(strokes,groups,ids);
 }
-export function selectionBounds(strokes,groups,ids){
- const selected=new Set(completeSelection(strokes,groups,ids));let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
+export function selectionBounds(strokes,groups,ids,objectIds=[]){
+ const selected=new Set(completeSelection(strokes,groups,ids,objectIds));let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
  const include=(x,y,x2,y2)=>{left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x2);bottom=Math.max(bottom,y2);};
- for(const s of strokes)if(selected.has(s.id)){const r=Math.max(0,s.width||0)/2;for(const p of s.points||[])include(p.x-r,p.y-r,p.x+r,p.y+r);}
- for(const g of activeGroups(strokes,groups))if(g.strokeIds.some(id=>selected.has(id))){const b=g.bounds;include(b.x,b.y,b.x+b.width,b.y+b.height);}
+ for(const s of strokes)if(selected.has(s.id)){const r=maxStrokeRadius(s);for(const p of s.points||[])include(p.x-r,p.y-r,p.x+r,p.y+r);}
+ for(const g of groups||[])if((durable(g)&&objectIds.includes(g.id))||(!objectIds.length&&activeGroups(strokes,[g]).length&&g.strokeIds.some(id=>selected.has(id)))){const b=g.bounds;include(b.x,b.y,b.x+b.width,b.y+b.height);}
  if(!Number.isFinite(left))return null;
  // Ink already touching the paper edge may have a clipped round cap. Preserve
  // that existing clipping, but never allow a new translation farther off-page.
  left=Math.max(0,left);top=Math.max(0,top);right=Math.min(PAGE.width,right);bottom=Math.min(PAGE.height,bottom);
  return {x:left,y:top,width:Math.max(0,right-left),height:Math.max(0,bottom-top)};
 }
-export function moveSelection(note,ids,dx,dy){
- const strokes=note.strokes||[],groups=note.convertedGroups||[],strokeIds=completeSelection(strokes,groups,ids),bounds=selectionBounds(strokes,groups,strokeIds);
+export function moveSelection(note,ids,dx,dy,objectIds=[]){
+ const strokes=note.strokes||[],groups=note.convertedGroups||[],strokeIds=completeSelection(strokes,groups,ids,objectIds),bounds=selectionBounds(strokes,groups,strokeIds,objectIds);
  if(!bounds||!Number.isFinite(dx)||!Number.isFinite(dy))return {note,strokeIds,bounds,dx:0,dy:0,moved:false};
  dx=Math.max(-bounds.x,Math.min(PAGE.width-bounds.x-bounds.width,dx));dy=Math.max(-bounds.y,Math.min(PAGE.height-bounds.y-bounds.height,dy));
  if(!dx&&!dy)return {note,strokeIds,bounds,dx:0,dy:0,moved:false};
  const selected=new Set(strokeIds),active=new Set(activeGroups(strokes,groups));
- return {note:{...note,strokes:strokes.map(s=>selected.has(s.id)?{...s,points:s.points.map(p=>({...p,x:p.x+dx,y:p.y+dy}))}:s),convertedGroups:groups.map(g=>active.has(g)&&g.strokeIds.some(id=>selected.has(id))?{...g,bounds:{...g.bounds,x:g.bounds.x+dx,y:g.bounds.y+dy}}:g)},strokeIds,bounds:{...bounds,x:bounds.x+dx,y:bounds.y+dy},dx,dy,moved:true};
+ return {note:{...note,strokes:strokes.map(s=>selected.has(s.id)?{...s,points:s.points.map(p=>({...p,x:p.x+dx,y:p.y+dy}))}:s),convertedGroups:groups.map(g=>((durable(g)&&objectIds.includes(g.id))||(!objectIds.length&&active.has(g)&&g.strokeIds.some(id=>selected.has(id))))?{...g,bounds:{...g.bounds,x:g.bounds.x+dx,y:g.bounds.y+dy}}:g)},strokeIds,bounds:{...bounds,x:bounds.x+dx,y:bounds.y+dy},dx,dy,moved:true};
 }
 
 function polygonBounds(points){let x=Infinity,y=Infinity,right=-Infinity,bottom=-Infinity;for(const p of points){x=Math.min(x,p.x);y=Math.min(y,p.y);right=Math.max(right,p.x);bottom=Math.max(bottom,p.y);}return {x,y,width:right-x,height:bottom-y};}
@@ -61,7 +67,7 @@ export function selectStrokesInLasso(strokes,groups,points,options={}){
  // A collinear gesture is not an enclosing region; self-crossing lassos still
  // work (unlike signed-area rejection, which would discard a figure eight).
  const origin=points[0],other=points.find(p=>p.x!==origin.x||p.y!==origin.y);if(!other||!points.some(p=>Math.abs((other.x-origin.x)*(p.y-origin.y)-(other.y-origin.y)*(p.x-origin.x))>1e-8))return [];
- for(const stroke of strokes){const p=stroke.points||[];if(!p.length)continue;const radius=Math.max(0,stroke.width||0)/2,b=polygonBounds(p);b.x-=radius;b.y-=radius;b.width+=2*radius;b.height+=2*radius;if(!intersects(bounds,b))continue;if(p.length===1?polygonHitsLine(p[0],p[0],points,radius):p.some((v,i)=>i>0&&polygonHitsLine(p[i-1],v,points,radius)))selected.add(stroke.id);}
+ for(const stroke of strokes){const p=stroke.points||[];if(!p.length)continue;const radius=maxStrokeRadius(stroke),b=polygonBounds(p);b.x-=radius;b.y-=radius;b.width+=2*radius;b.height+=2*radius;if(!intersects(bounds,b))continue;if(p.length===1?polygonHitsLine(p[0],p[0],points,radius):p.some((v,i)=>i>0&&polygonHitsLine(p[i-1],v,points,radius)))selected.add(stroke.id);}
  for(const g of activeGroups(strokes,groups))if(intersects(bounds,g.bounds)&&polygonHitsBox(points,g.bounds))g.strokeIds.forEach(id=>selected.add(id));
  return expandSelection(strokes,groups,selected);
 }
@@ -74,9 +80,9 @@ export function selectStrokesInLasso(strokes,groups,points,options={}){
 export function selectRegionDetailed(strokes,groups,region,lasso=true){
  const hit=lasso?selectStrokesInLasso(strokes,[],region):selectStrokesInRect(strokes,[],region);
  const r=lasso?null:normalizeSelectionRect(region),polygon=lasso?region:null;
- if(lasso&&(!Array.isArray(polygon)||polygon.length<3||polygon.some(p=>!p||!Number.isFinite(p.x)||!Number.isFinite(p.y))))return {strokeIds:[],partialGroupIds:[]};
- if(!lasso&&!r)return {strokeIds:[],partialGroupIds:[]};
- const selected=new Set(hit),partial=new Set(),blocked=new Set(),active=activeGroups(strokes,groups);
+ if(lasso&&(!Array.isArray(polygon)||polygon.length<3||polygon.some(p=>!p||!Number.isFinite(p.x)||!Number.isFinite(p.y))))return {strokeIds:[],partialGroupIds:[],objectIds:[]};
+ if(!lasso&&!r)return {strokeIds:[],partialGroupIds:[],objectIds:[]};
+ const selected=new Set(hit),partial=new Set(),blocked=new Set(),active=activeGroups(strokes,groups).filter(g=>!durable(g)),objects=(groups||[]).filter(durable),objectIds=[];
  function containsBox(b){
   if(!lasso)return b.x>=r.x&&b.y>=r.y&&b.x+b.width<=r.x+r.width&&b.y+b.height<=r.y+r.height;
   const corners=[{x:b.x,y:b.y},{x:b.x+b.width,y:b.y},{x:b.x+b.width,y:b.y+b.height},{x:b.x,y:b.y+b.height}];
@@ -94,17 +100,25 @@ export function selectRegionDetailed(strokes,groups,region,lasso=true){
   if(touches)partial.add(g.id);
   g.strokeIds.forEach(id=>blocked.add(id));
  }
+ for(const g of objects){
+  const hitBounds=objectHitBounds(g),sources=Array.isArray(g.strokeIds)?g.strokeIds:[];
+  if(containsBox(hitBounds)){objectIds.push(g.id);continue;}
+  if(sources.some(id=>selected.has(id))||(lasso?polygonHitsBox(polygon,hitBounds):intersects(r,hitBounds)))partial.add(g.id);
+  sources.forEach(id=>blocked.add(id));
+ }
  // Even malformed overlapping annotations cannot reintroduce partially selected
  // sources through an otherwise fully enclosed group.
  for(const id of blocked)selected.delete(id);
  let changed=true;while(changed){changed=false;for(const g of active)if(g.strokeIds.some(id=>selected.has(id))&&!g.strokeIds.every(id=>selected.has(id))){partial.add(g.id);for(const id of g.strokeIds)if(selected.delete(id))changed=true;}}
- return {strokeIds:strokes.filter(s=>selected.has(s.id)).map(s=>s.id),partialGroupIds:[...partial]};
+ for(const id of objectSources(strokes,groups,objectIds))selected.add(id);
+ return {strokeIds:strokes.filter(s=>selected.has(s.id)).map(s=>s.id),partialGroupIds:[...partial],objectIds};
 }
 
 /** Keep only explicitly selected complete groups; never grow a region later
  * during rendering or dragging. Raw strokes outside converted groups remain. */
-export function completeSelection(strokes,groups,ids){
+export function completeSelection(strokes,groups,ids,objectIds=[]){
  const selected=new Set(ids),active=activeGroups(strokes,groups);let changed=true;
  while(changed){changed=false;for(const g of active)if(g.strokeIds.some(id=>selected.has(id))&&!g.strokeIds.every(id=>selected.has(id)))for(const id of g.strokeIds)if(selected.delete(id))changed=true;}
+ for(const id of objectSources(strokes,groups,objectIds))selected.add(id);
  return strokes.filter(s=>selected.has(s.id)).map(s=>s.id);
 }

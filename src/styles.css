@@ -34,3 +34,26 @@
 #paper-dialog{max-width:none}.paper-theme-label{display:block;margin-top:7px;line-height:1.4}.paper-theme-family{display:none}.paper-theme-swatch{display:block}.paper-theme-swatch svg{box-shadow:0 1px 4px #24365018}#paper-theme-list button{min-height:120px}
 
 #pen-dialog{width:min(820px,94vw);max-width:none;max-height:90dvh}#pen-kind-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0}#pen-kind-list button{border:2px solid #e4e8ee;min-height:104px;padding:10px}#pen-kind-list button[aria-pressed="true"]{border-color:#526ef0;background:#f5f7fc}#pen-kind-list svg{width:100%;height:60px;display:block}.pen-setting-row{display:flex;gap:24px;align-items:center}.pen-setting-row label{display:flex;align-items:center;gap:10px}#pen-sample svg{width:100%;height:86px;display:block}#pen-error{color:#a33139}#pen-color-input{width:50px;height:44px;border:0;background:transparent}@media(max-width:520px){#pen-kind-list{grid-template-columns:repeat(2,minmax(0,1fr))}.pen-setting-row{gap:12px;flex-wrap:wrap}}@media print{#pen-dialog{display:none!important}}
+
+/* Original notebook identity covers: never applied to paper or page previews. */
+#notebook-dialog{width:min(760px,94vw);max-height:90dvh;overflow-y:auto}
+.cover-editor{grid-template-columns:minmax(140px,190px) minmax(0,1fr);gap:26px;align-items:start}
+#cover-preview{position:sticky;top:0;min-height:240px;max-height:300px}
+#cover-choice{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px 10px;max-height:390px;overflow-y:auto;padding:5px 6px 10px}
+.cover-choice{display:flex;flex-direction:column;align-items:stretch;gap:7px;min-width:0;min-height:44px;padding:6px;background:transparent;color:#344252;border:2px solid transparent;border-radius:9px;text-align:left}
+.cover-choice:hover{background:#e9edf4}.cover-choice[aria-pressed="true"]{border-color:#526ef0;background:#eef1fb;outline:none}
+.cover-choice:focus-visible{outline:3px solid #526ef0;outline-offset:2px}.cover-choice:disabled{opacity:.6;cursor:wait}
+.cover-choice-swatch{display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:3/4;min-height:76px;max-height:112px;border-left:4px solid #0002;border-radius:2px 6px 6px 2px;box-shadow:0 2px 5px #17243718;overflow:hidden}
+.cover-choice-label{display:block;font-size:10px;line-height:1.45;word-break:keep-all;overflow-wrap:anywhere;font-weight:500}
+.cover-choice-mark{font-family:Georgia,serif;font-size:20px;opacity:.85;line-height:1}
+.notebook-cover[data-cover-design]{position:relative;background-size:100% 100%;border-left-color:#0002}
+.notebook-cover[data-cover-design] .notebook-cover-title{position:relative;font-size:clamp(16px,2.2vw,24px);line-height:1.4;letter-spacing:-.02em;overflow-wrap:anywhere;max-width:100%}
+.notebook-cover[data-cover-design="block"] .notebook-cover-title,.notebook-cover[data-cover-design="diagonal"] .notebook-cover-title,.notebook-cover[data-cover-design="grid"] .notebook-cover-title{padding:10px;background:#faf7efed;border:1px solid #fff8;border-radius:2px;color:#27394b}
+.notebook-cover[data-cover-design="label"]{padding-left:18%;padding-right:18%}
+.notebook-cover[data-cover-design="frame"]{padding-left:16%;padding-right:16%}
+.notebook-cover[data-cover-design="block"] .notebook-cover-footer,.notebook-cover[data-cover-design="diagonal"] .notebook-cover-footer{position:absolute;bottom:8%;left:20px;color:#fffaf0;opacity:.95}
+.library-items.list .notebook-cover[data-cover-design]{padding:5px;min-height:72px;position:relative}
+.library-items.list .notebook-cover[data-cover-design] .notebook-cover-title{font-size:8px;line-height:1.3;padding:3px;-webkit-line-clamp:3}
+.library-items.list .notebook-cover[data-cover-design] .notebook-cover-brand,.library-items.list .notebook-cover[data-cover-design] .notebook-cover-footer{display:none}
+@media(max-width:520px){.cover-editor{grid-template-columns:110px minmax(0,1fr);gap:13px}#cover-preview{min-height:150px;padding:12px;max-height:185px}#cover-choice{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 6px;max-height:350px}.cover-choice{padding:4px}.cover-choice-swatch{max-height:92px}.cover-choice-label{font-size:9px}.notebook-cover[data-cover-design] .notebook-cover-title{font-size:16px}.notebook-cover[data-cover-design="block"] .notebook-cover-footer,.notebook-cover[data-cover-design="diagonal"] .notebook-cover-footer{left:12px;font-size:6px}}
+.page-navigation{max-width:100%;overflow-x:auto}

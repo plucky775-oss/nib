@@ -78,14 +78,20 @@ export function eraseStrokes(strokes,from,to=from,radius=20,{idFactory=defaultId
  const unchanged=()=>({strokes,changed:false,removedIds:[],replacements:[]});
  if(!validPoint(from)||!validPoint(to)||!Number.isFinite(radius)||radius<=0)return unchanged();
  if(typeof idFactory!=='function')throw new TypeError('idFactory must be a function');
- const used=new Set();
+ const used=new Set(),bounds=new Map();
  for(const s of strokes){
- if(!s||typeof s.id!=='string'||used.has(s.id)||!Array.isArray(s.points)||!s.points.every(validPoint))throw new TypeError('Invalid stroke or duplicate stroke ID');
- used.add(s.id);
+ if(!s||typeof s.id!=='string'||used.has(s.id)||!Array.isArray(s.points))throw new TypeError('Invalid stroke or duplicate stroke ID');
+ let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+ for(const p of s.points){if(!validPoint(p))throw new TypeError('Invalid stroke or duplicate stroke ID');minX=Math.min(minX,p.x);minY=Math.min(minY,p.y);maxX=Math.max(maxX,p.x);maxY=Math.max(maxY,p.y);}
+ bounds.set(s,{minX,minY,maxX,maxY});used.add(s.id);
  }
  const result=[],removedIds=[],replacements=[];
  for(const stroke of strokes){
  const r=radius+(includeStrokeWidth?maxStrokeRadius(stroke):0);
+ const box=bounds.get(stroke);
+ // Conservative broad phase: only definitely disjoint centerlines are skipped.
+ // Validation above still visits every point, so invalid far-away ink is not hidden.
+ if(box.maxX<Math.min(from.x,to.x)-r||box.minX>Math.max(from.x,to.x)+r||box.maxY<Math.min(from.y,to.y)-r||box.minY>Math.max(from.y,to.y)+r){result.push(stroke);continue;}
  const clipped=clipPoints(stroke.points,from,to,r);
  if(!clipped.changed){result.push(stroke);continue;}
  const fragmentIds=[];

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mountLibrary} from '../src/library-view.js';
-import {COVER_PRESETS} from '../src/notebook-covers.js';
+import {COVER_PRESETS,applyCoverAppearance} from '../src/notebook-covers.js';
 import {setNotebookFavorite} from '../src/library-model.js';
 import {makeNote} from '../src/core.js';
 import {notebookId} from '../src/notebooks.js';
@@ -166,4 +166,14 @@ test('pending delete disables duplicate actions even after grid/list rerender an
 test('delete rejection preserves data and restores the action for a safe retry',async t=>{
  const h=harness(t,{deleteNotebook:async()=>{throw Error('atomic delete failed');}});await h.api.show();const before=structuredClone(h.notes);
  await assert.rejects(h.cards()[0].children[3].click(),/atomic delete failed/);assert.deepEqual(h.notes,before);assert.equal(h.cards()[0].children[3].disabled,false);assert.equal(h.$('library-dialog').open,true);assert.deepEqual(h.calls.open,[]);
+});
+
+test('all fifteen library identities match editor appearance in both grid and list and never read page content',async t=>{
+ const notes=COVER_PRESETS.map((p,i)=>page('design-'+i,p.label,100-i,{cover:p.id,text:'내용은 표지가 아님',paper:'grid',paperTheme:'red-corner'})),h=harness(t,{notes}),before=structuredClone(notes);await h.api.show();
+ for(const mode of ['grid','list']){h.$('library-'+mode).click();assert.equal(h.cards().length,15);for(const [i,card]of h.cards().entries()){
+  const cover=card.children[0].children[0],expected={style:{},setAttribute(){}};applyCoverAppearance(expected,COVER_PRESETS[i].id);
+  assert.deepEqual(cover.style,expected.style);assert.equal(cover.getAttribute('data-cover-id'),COVER_PRESETS[i].id);assert.equal(cover.children.find(n=>n.className==='notebook-cover-title').textContent,COVER_PRESETS[i].label);
+  assert.ok(!cover.children.some(n=>n.tag==='svg'||n.textContent==='내용은 표지가 아님'));
+ }}
+ assert.deepEqual(notes,before);assert.equal(h.htmlWrites.length,0);
 });

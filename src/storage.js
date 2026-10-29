@@ -36,3 +36,20 @@ export async function removeNotesBatch(ids,expectedRevisionsMap){
  const copies=[...ids],expected=batchExpectations(copies,expectedRevisionsMap);
  await commitBatch(copies,expected,store=>{for(const id of copies)store.delete(id);});
 }
+
+// Read membership and delete in the same write transaction, so concurrent tabs
+// cannot both remove the last two pages. No sibling data is rewritten.
+export async function removePageSafely(id,expected=0){
+ const d=await db();return new Promise((resolve,reject)=>{
+  const tx=d.transaction('notes','readwrite'),store=tx.objectStore('notes');let issue,result;
+  const request=store.getAll();request.onsuccess=()=>{try{
+   const pages=request.result,target=pages.find(p=>p.id===id);if(!target)throw Error('이미 삭제되었거나 찾을 수 없는 페이지입니다.');checkRevision(target,expected);
+   const book=p=>typeof p.notebookId==='string'&&/^[A-Za-z0-9_-]{1,100}$/.test(p.notebookId)?p.notebookId:p.id;
+   if(pages.filter(p=>book(p)===book(target)).length<=1)throw Error('노트에는 최소 한 페이지가 필요합니다. 노트 전체 삭제는 서재에서 해주세요.');
+   const remainingPages=structuredClone(pages.filter(p=>p.id!==id&&book(p)===book(target)));
+   result={remainingPages,revisions:new Map(remainingPages.map(p=>[p.id,p._revision||0]))};
+   store.delete(id);
+  }catch(e){issue=e;tx.abort();}};
+  request.onerror=()=>{issue=request.error;tx.abort();};tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(issue||tx.error);tx.onabort=()=>reject(issue||tx.error||Error('페이지 삭제가 중단됐습니다.'));
+ });
+}

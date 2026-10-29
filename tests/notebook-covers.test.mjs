@@ -1,13 +1,35 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {COVER_PRESETS,normalizeCover}from'../src/notebook-covers.js';
+import {COVER_PRESETS,normalizeCover,coverBackgroundSvg,applyCoverAppearance}from'../src/notebook-covers.js';
 import {makeNote,validateNote,parseBackup}from'../src/core.js';
 import {createPage,cloneImportedPages}from'../src/notebooks.js';
 import {deriveLibrary,setNotebookMetadata}from'../src/library-model.js';
 const fixture=()=>{const a=makeNote(),b=createPage([a],a),other=makeNote();return [a,b,other]};
-test('presets are immutable safe color constants with stable unique IDs',()=>{assert.deepEqual(COVER_PRESETS.map(p=>p.id),['midnight','ivory','slate','clay','lavender']);assert.equal(Object.isFrozen(COVER_PRESETS),true);for(const p of COVER_PRESETS){assert.equal(Object.isFrozen(p),true);assert.match(p.color,/^#[0-9a-f]{6}$/);assert.match(p.ink,/^#[0-9a-f]{6}$/);assert.equal(normalizeCover(p.id),p.id);assert.ok(p.label)}});
+test('presets are immutable safe color constants with stable unique IDs',()=>{assert.deepEqual(COVER_PRESETS.slice(0,5).map(p=>p.id),['midnight','ivory','slate','clay','lavender']);assert.equal(COVER_PRESETS.length,15);assert.equal(new Set(COVER_PRESETS.map(p=>p.id)).size,15);assert.equal(Object.isFrozen(COVER_PRESETS),true);for(const p of COVER_PRESETS){assert.equal(Object.isFrozen(p),true);assert.match(p.color,/^#[0-9a-f]{6}$/);assert.match(p.ink,/^#[0-9a-f]{6}$/);assert.equal(normalizeCover(p.id),p.id);assert.ok(p.label)}});
 test('new and legacy notes use midnight; unsafe imports cannot inject CSS',()=>{assert.equal(makeNote().cover,'midnight');for(const cover of [undefined,null,{},'url(https://bad)','MIDNIGHT','midnight\n','#fff','']){assert.equal(normalizeCover(cover),'midnight');assert.equal(validateNote({...makeNote(),cover}).cover,'midnight')}const n=makeNote();delete n.cover;assert.equal(validateNote(n).cover,'midnight')});
 test('metadata edits all sibling pages immutably, preserving page identities contents and timestamps',()=>{const notes=fixture(),before=JSON.stringify(notes),changed=setNotebookMetadata(notes,notes[0].notebookId,{title:'  새 제목  ',cover:'clay'});for(let i=0;i<2;i++){assert.notEqual(changed[i],notes[i]);assert.equal(changed[i].title,'새 제목');assert.equal(changed[i].cover,'clay');for(const key of ['id','notebookId','pageOrder','updatedAt','createdAt','strokes','convertedGroups','text','font','favorite'])assert.equal(changed[i][key],notes[i][key])}assert.equal(changed[2],notes[2]);assert.equal(JSON.stringify(notes),before)});
 test('invalid fields reject the entire metadata edit without partial title application',()=>{const notes=fixture(),before=JSON.stringify(notes);for(const title of ['', '   ',null,12,'가'.repeat(121)])assert.throws(()=>setNotebookMetadata(notes,notes[0].notebookId,{title,cover:'ivory'}));for(const cover of [null,{},'bad','ivory\n'])assert.throws(()=>setNotebookMetadata(notes,notes[0].notebookId,{title:'valid',cover}));assert.equal(JSON.stringify(notes),before);assert.equal(setNotebookMetadata(notes,notes[0].notebookId,{title:'가'.repeat(120)})[0].title.length,120)});
 test('partial edits preserve unprovided fields and no-op preserves references',()=>{const notes=fixture();const titleOnly=setNotebookMetadata(notes,notes[0].notebookId,{title:'제목'});assert.equal(titleOnly[0].cover,notes[0].cover);const coverOnly=setNotebookMetadata(notes,notes[0].notebookId,{cover:'slate'});assert.equal(coverOnly[0].title,notes[0].title);assert.ok(setNotebookMetadata(notes,'absent',{title:'변경'}).every((n,i)=>n===notes[i]));assert.ok(setNotebookMetadata(notes,notes[0].notebookId,{}).every((n,i)=>n===notes[i]))});
 test('new pages inherit selected cover and library derives the first ordered page cover',()=>{const notes=fixture(),changed=setNotebookMetadata(notes,notes[0].notebookId,{cover:'lavender'}),newPage=createPage(changed,changed[1]);assert.equal(newPage.cover,'lavender');assert.equal(newPage.strokes.length,0);changed[1].cover='clay';const book=deriveLibrary([changed[1],changed[0]])[0];assert.equal(book.cover,'lavender');assert.equal(book.coverPage,changed[0])});
 test('backup and copied import retain per-notebook cover and rename without losing ink',()=>{const notes=fixture();notes[0].strokes=[{id:'s',width:3,color:'#223247',points:[{x:1,y:2}]}];const changed=setNotebookMetadata(notes,notes[0].notebookId,{title:'보존할 노트',cover:'ivory'}),restored=parseBackup(JSON.stringify({version:1,notes:changed}));assert.equal(restored[0].cover,'ivory');assert.equal(restored[1].title,'보존할 노트');assert.deepEqual(restored[0].strokes,notes[0].strokes);const copied=cloneImportedPages(restored);assert.equal(copied[0].cover,'ivory');assert.notEqual(copied[0].id,restored[0].id);assert.deepEqual(copied[0].strokes,restored[0].strokes)});
+
+test('five legacy IDs retain their exact existing palette while ten new designs have distinct fixed geometry',()=>{
+ assert.deepEqual(COVER_PRESETS.slice(0,5).map(({id,color,ink})=>({id,color,ink})),[
+  {id:'midnight',color:'#253348',ink:'#f5f3ed'},{id:'ivory',color:'#eee8dc',ink:'#3b3b38'},
+  {id:'slate',color:'#6b7783',ink:'#ffffff'},{id:'clay',color:'#ac8070',ink:'#ffffff'},{id:'lavender',color:'#b5acc6',ink:'#302c40'}]);
+ assert.equal(new Set(COVER_PRESETS.slice(5).map(p=>p.design)).size,10);
+ for(const preset of COVER_PRESETS){const a=coverBackgroundSvg(preset.id),b=coverBackgroundSvg(preset.id);assert.equal(a,b);assert.ok(a.length<7000);assert.match(a,/viewBox="0 0 300 400"/);assert.ok(!/<script|<image|foreignObject|href=|onload=|<text|<style|https?:\/\//i.test(a.replace('http://www.w3.org/2000/svg','')));}
+});
+test('cover rendering only reads allowlisted IDs and consistently resets prior pattern styles',()=>{
+ const element={style:{},attrs:{},setAttribute(k,v){this.attrs[k]=v}};
+ for(const preset of COVER_PRESETS){const result=applyCoverAppearance(element,preset.id);assert.equal(result,preset);assert.equal(element.className,'notebook-cover cover-'+preset.id);assert.equal(element.style.backgroundColor,preset.color);assert.equal(element.style.color,preset.ink);assert.equal(element.attrs['data-cover-id'],preset.id);assert.equal(element.attrs['data-cover-design'],preset.design);if(preset.design!=='solid')assert.equal(element.style.backgroundImage,`url("data:image/svg+xml,${encodeURIComponent(coverBackgroundSvg(preset.id))}")`);}
+ applyCoverAppearance(element,'ivory');assert.equal(element.style.backgroundImage,'none');
+ applyCoverAppearance(element,'url(https://evil.test)');assert.equal(element.className,'notebook-cover cover-midnight');assert.equal(element.style.backgroundImage,'none');
+ assert.equal(coverBackgroundSvg('<svg onload=evil>'),coverBackgroundSvg('midnight'));
+});
+test('all fifteen covers survive JSON, copied imports and new page inheritance without replacing page backgrounds',()=>{
+ for(const preset of COVER_PRESETS){const original={...makeNote(),cover:preset.id,paper:'grid',paperTheme:'blue-frame',text:'원본 내용',convertedGroups:[],strokes:[{id:'s',width:3,color:'#223247',points:[{x:4,y:8}]}]};
+  const restored=parseBackup(JSON.stringify({version:1,notes:[original]}))[0],copy=cloneImportedPages([restored])[0],next=createPage([restored],restored);
+  for(const n of [restored,copy,next]){assert.equal(n.cover,preset.id);assert.equal(n.paper,'grid');assert.equal(n.paperTheme,'blue-frame');}
+  assert.deepEqual(restored.strokes,original.strokes);assert.deepEqual(copy.strokes,original.strokes);assert.equal(original.text,'원본 내용');assert.equal(next.strokes.length,0);
+ }
+});
