@@ -9,7 +9,7 @@
 
 #selection-box{fill:rgba(57,120,212,.08);stroke:#3978d4;stroke-width:1.5;stroke-dasharray:6 4;vector-effect:non-scaling-stroke}#canvas.selecting{cursor:crosshair}
 
-#lasso-path{fill:rgba(57,120,212,.06);stroke:#3978d4;stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}.selection-actions{position:fixed;z-index:25;bottom:16px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 24px);display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding:12px 16px;background:#fff;box-shadow:0 6px 28px #22324733;border:1px solid #ccd6e2;border-radius:14px}.selection-actions[hidden]{display:none}.selection-actions button,.selection-actions select{min-height:44px}.selection-actions label{display:flex;align-items:center;gap:6px}.selection-actions small,#selection-info{font-size:11px;color:#64748b}.selection-actions small{width:100%;text-align:center}#select-shape{max-width:100px}
+#lasso-path{fill:rgba(57,120,212,.06);stroke:#3978d4;stroke-width:1.5;stroke-dasharray:5 4;vector-effect:non-scaling-stroke}.selection-actions{position:fixed;z-index:25;bottom:16px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 24px);display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding:12px 16px;background:#fff;box-shadow:0 6px 28px #22324733;border:1px solid #ccd6e2;border-radius:14px}.selection-actions[hidden]{display:none}.selection-actions button,.selection-actions select{min-height:44px}.selection-actions label{display:flex;align-items:center;gap:6px}.selection-actions small,#selection-info{font-size:11px;color:#64748b}.selection-actions small{width:100%;text-align:center}
 
 .selection-actions select{max-width:min(200px,50vw)}@media print{.selection-actions,#selection-box,#lasso-path{display:none!important}}
 
@@ -57,3 +57,5 @@
 .library-items.list .notebook-cover[data-cover-design] .notebook-cover-brand,.library-items.list .notebook-cover[data-cover-design] .notebook-cover-footer{display:none}
 @media(max-width:520px){.cover-editor{grid-template-columns:110px minmax(0,1fr);gap:13px}#cover-preview{min-height:150px;padding:12px;max-height:185px}#cover-choice{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 6px;max-height:350px}.cover-choice{padding:4px}.cover-choice-swatch{max-height:92px}.cover-choice-label{font-size:9px}.notebook-cover[data-cover-design] .notebook-cover-title{font-size:16px}.notebook-cover[data-cover-design="block"] .notebook-cover-footer,.notebook-cover[data-cover-design="diagonal"] .notebook-cover-footer{left:12px;font-size:6px}}
 .page-navigation{max-width:100%;overflow-x:auto}
+
+.lasso-tool{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center}.lasso-tool svg{display:block;pointer-events:none}
