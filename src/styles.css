@@ -77,3 +77,5 @@
 
 #convert-page{background:#213d53;color:#fff;font-size:12px}#convert-page:hover{background:#34556d}
 #converted-ink [role="button"]:focus-visible{outline:2px solid #526ef0;outline-offset:3px}
+/* Typed text is a deliberate local insertion, never a handwriting OCR field. */
+#text-edit-dialog{max-height:90dvh;overflow:auto}#text-editor{box-sizing:border-box;max-width:100%;line-height:1.45}#text-input-error{color:#a52f3b}#keyboard-text{min-width:44px;min-height:44px}#text-input-font{max-width:220px}

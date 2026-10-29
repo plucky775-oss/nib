@@ -1,3 +1,4 @@
+import {mountKeyboardText} from './keyboard-text.js';
 import {mountTextObjectEditor} from './text-object-editor.js';
 import {deleteSelectedContent} from './delete-selection.js';
 import {mountPenPicker} from './pen-picker.js';
@@ -127,8 +128,7 @@ for(const name of ['pen','eraser','select'])$(name).onclick=()=>{endStroke();too
 $('new-note').onclick=()=>{endStroke();stopAuto('새 노트를 만드는 동안 자동 변환을 껐습니다.');return notebookEditor.open();};
 $('title').oninput=()=>{const title=$('title').value;for(const page of pagesFor(notes,notebookId(note))){page.title=title;page.updatedAt=Date.now();dirtyNotes.add(page.id);}dirty();for(const b of $('note-tabs').querySelectorAll('button'))if(b.dataset.noteId===notebookId(note))b.textContent=title||'제목 없는 노트';for(const b of $('note-list').querySelectorAll('button'))if(b.dataset.noteId===notebookId(note))b.querySelector('strong').textContent=title||'제목 없는 노트';};
 $('ink-mode').onclick=()=>{clearSelection();stopAuto('내 필체 모드로 전환해 자동 변환을 껐습니다.');change(()=>{note.mode='ink';showResult=false})};$('text-mode').onclick=()=>{clearSelection();change(()=>{note.mode='text';showResult=false})};
-$('edit-text').onclick=()=>{stopAuto('키보드 편집 중에는 자동 변환하지 않습니다.');endStroke();$('text-editor').value=note.text;$('text-edit-dialog').showModal()};$('cancel-text-edit').onclick=()=>$('text-edit-dialog').close();
-$('save-text-edit').onclick=()=>{const text=$('text-editor').value;let groups;try{groups=!text.trim()?[]:appendTextObject([],note.strokes.length?makeConvertedGroup(note.strokes,text,{id:id(),font:note.font,fontSize:note.fontSize}):{kind:'text-object',id:id(),text,strokeIds:[],font:note.font,fontSize:note.fontSize,bounds:note.convertedGroups?.[0]?.bounds||{x:72,y:156,width:756,height:300}});}catch(e){toast(e.message);return;}change(()=>{note.text=text;note.textPlacementMissing=false;note.convertedGroups=groups;note.mode='text';note.showOriginal=false;showResult=false});$('text-edit-dialog').close()};
+
 $('undo').onclick=()=>{stopAuto('실행 취소를 보존하기 위해 자동 변환을 껐습니다.');endStroke();commitText();clearSelection();{const title=note.title,favorite=note.favorite,cover=note.cover,paperTheme=note.paperTheme,penKind=note.penKind;note=history.undo(note);note.title=title;note.favorite=favorite;note.cover=cover;note.paperTheme=paperTheme;note.penKind=penKind;}autoChanged();dirty();render()};$('redo').onclick=()=>{stopAuto();endStroke();commitText();clearSelection();{const title=note.title,favorite=note.favorite,cover=note.cover,paperTheme=note.paperTheme,penKind=note.penKind;note=history.redo(note);note.title=title;note.favorite=favorite;note.cover=cover;note.paperTheme=paperTheme;note.penKind=penKind;}autoChanged();dirty();render()};
 $('shape-correct').onchange=()=>change(()=>note.shapeCorrection=$('shape-correct').checked);$('smooth').onchange=()=>change(()=>note.smooth=Number($('smooth').value)/100);$('original').onclick=()=>{clearSelection();stopAuto('원본 보기를 바꿔 자동 변환을 껐습니다.');change(()=>note.showOriginal=!note.showOriginal)};$('paper').onchange=()=>change(()=>note.paper=$('paper').value);$('font-size').onchange=()=>chooseDefaultFont(null,Number($('font-size').value));
 function renderFontOptions(){
@@ -205,6 +205,12 @@ const library=mountLibrary({getNotes:()=>notes,getCurrent:()=>notebookId(note),d
 // Main-page conversion never switches notebook or page. Keep the existing
 // consent and request-budget path for both whole-page and selected conversion.
 $('convert-page').onclick=()=>{if(selectedIds.length)$('selection-convert').onclick();else if(selectedObjectIds.length)toast('이미 변환한 글입니다. 선택 폰트 적용이나 글·크기 수정을 사용하세요.');else $('recognize').onclick();};
+mountKeyboardText({getNote:()=>note,getFonts:()=>[...FONTS,...customFonts].filter(f=>!customFontId(f.id)||customFaces.has(f.id)).map(f=>({...f,family:`${f.id}, NanumPenScript, sans-serif`})),beforeOpen:()=>{endStroke();stopAuto('키보드 입력 중에는 자동 변환을 껐습니다.');},notify:toast,apply:(next)=>{
+ history.push(note);
+ if(activeRecognition?.noteId===note.id){activeRecognition.discardResult=true;activeRecognition.controller.abort();}
+ note=next;recognitionResults.delete(note.id);retryWarnings.delete(note.id);converted.delete(note.id);
+ clearSelection();autoChanged();dirty();render();$('auto-status').textContent='키보드 글을 추가했습니다. 손가락으로 이동하거나 선택 후 글·크기를 수정할 수 있어요.';
+}});
 mountTextObjectEditor({getNote:()=>note,getSelection:()=>selectedObjectIds,beforeOpen:()=>{endStroke();stopAuto('선택한 글을 수정하는 동안 자동 변환을 껐습니다.');},notify:toast,apply:(next,message)=>{
  history.push(note);
  if(activeRecognition?.noteId===note.id){activeRecognition.discardResult=true;activeRecognition.controller.abort();}
