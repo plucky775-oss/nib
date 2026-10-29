@@ -121,7 +121,7 @@ $('canvas').addEventListener('pointerup',e=>{if(drawing?.pointerId!==e.pointerId
 $('canvas').addEventListener('pointerleave',()=>{if(!drawing)showEraser(null)});
 for(const name of ['pointercancel','lostpointercapture'])$('canvas').addEventListener(name,e=>{if(drawing?.pointerId===e.pointerId){endStroke();showEraser(null)}});
 // Block palm-driven scrolling outside the SVG while a pen or eraser stroke is active.
-for(const name of ['touchmove','wheel'])document.addEventListener(name,e=>{if(drawing&&e.cancelable)e.preventDefault()},{passive:false,capture:true});
+for(const name of ['touchmove','wheel'])document.addEventListener(name,e=>{if((drawing||(typeof drawingTools!=='undefined'&&drawingTools?.hasGesture?.()))&&e.cancelable)e.preventDefault()},{passive:false,capture:true});
 $('pan-page').onchange=()=>{endStroke();showEraser(null);$('canvas').classList.toggle('page-pan',$('pan-page').checked);$('canvas').classList.toggle('erasing',tool==='eraser'&&!$('pan-page').checked);$('touch').disabled=$('pan-page').checked;toast($('pan-page').checked?'페이지 이동 중에는 필기하지 않습니다. 쓰려면 이동을 꺼주세요.':'필기 모드입니다. 종이 밖에서 스크롤할 수 있어요.');};
 $('touch').onchange=()=>endStroke();
 $('eraser-size').onchange=()=>{endStroke();showEraser(null)};
