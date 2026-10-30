@@ -23,10 +23,16 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   const box=await page.locator('#paper-viewport').boundingBox();
   const x=box.x+box.width*.8,y=box.y+Math.min(130,box.height/2);
   const original=await page.evaluate(()=>({top:document.querySelector('.editor-chrome').getBoundingClientRect().top,left:document.querySelector('.editor-chrome').getBoundingClientRect().left,scale:visualViewport.scale,scrollX,scrollY,position:document.querySelector('#page-position').textContent}));
-  // Single vertical finger must not move the paper or the shell.
-  const before=await page.locator('#page').getAttribute('style');
+  const paperView=()=>page.locator('#page').evaluate(el=>{const m=new DOMMatrix(getComputedStyle(el).transform);return {x:m.e,y:m.f,scale:m.a}});
+  // One finger moves only the paper vertically, bounded by its top and bottom.
+  const before=await paperView(),paperBox=await page.locator('#page').boundingBox();
+  await send('touchStart',[[1,x,y]]);await send('touchMove',[[1,x+4,y-80]]);await send('touchEnd',[]);
+  const scrolled=await paperView();
+  assert.ok(Math.abs(scrolled.y-Math.max(Math.min(0,box.height-paperBox.height),-80))<1);
+  assert.equal(scrolled.x,before.x);assert.equal(scrolled.scale,before.scale);
+  assert.equal(await page.locator('#page-position').textContent(),original.position);
   await send('touchStart',[[1,x,y]]);await send('touchMove',[[1,x,y+80]]);await send('touchEnd',[]);
-  assert.equal(await page.locator('#page').getAttribute('style'),before);
+  assert.deepEqual(await paperView(),before);
   assert.equal(await page.locator('#page-position').textContent(),original.position);
   // A long horizontal drag is fixed until release and adds exactly one page.
   const drag=Math.max(120,Math.min(220,box.width*.28))+20;
@@ -64,9 +70,14 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   for(let i=1;i<=5;i++)await send('touchMove',[[1,cx-40-i*8,cy],[2,cx+40+i*8,cy]]);
   assert.equal(await page.locator('#paper-zoom-reset').textContent(),'200%');
   await send('touchEnd',[]);
-  // Pan only with two contacts; leave one then move it without a new page.
+  // Two-finger pan remains available; the leftover finger cannot start a new gesture.
   await send('touchStart',[[1,cx-40,cy],[2,cx+40,cy]]);await send('touchMove',[[1,cx-40,cy-60],[2,cx+40,cy-60]]);
   await send('touchEnd',[[1,cx-40,cy-60]]);await send('touchMove',[[1,cx-180,cy-60]]);await send('touchEnd',[]);
+  assert.equal(await page.locator('#page-position').textContent(),'4 / 4');
+  const zoomed=await paperView();
+  await send('touchStart',[[1,cx,cy]]);await send('touchMove',[[1,cx+4,cy-60]]);await send('touchEnd',[]);
+  const oneFinger=await paperView();
+  assert.equal(oneFinger.scale,zoomed.scale);assert.equal(oneFinger.x,zoomed.x);assert.equal(oneFinger.y,zoomed.y-60);
   assert.equal(await page.locator('#page-position').textContent(),'4 / 4');
   const shell=await page.evaluate(()=>({top:document.querySelector('.editor-chrome').getBoundingClientRect().top,left:document.querySelector('.editor-chrome').getBoundingClientRect().left,scale:visualViewport.scale,scrollX,scrollY}));
   for(const key of Object.keys(shell))assert.equal(shell[key],original[key],key);
@@ -81,13 +92,19 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   const ink=saved.find(n=>n.strokes.length)?.strokes[0];assert.ok(ink,'pen writes after zoom');
   assert.ok(Math.abs(ink.points[0].x-(inkStart.x-p.x)*900/p.width)<.1);
   assert.ok(Math.abs(ink.points[0].y-(inkStart.y-p.y)*1200/p.height)<.1);
+  // Start directly on saved ink: scroll the paper without altering the strokes.
+  const inkView=await paperView();
+  await send('touchStart',[[1,inkStart.x,inkStart.y]]);await send('touchMove',[[1,inkStart.x,inkStart.y+40]]);await send('touchEnd',[]);
+  assert.equal((await paperView()).y,inkView.y+40);
+  const afterScroll=await page.evaluate(async()=>{const {getNotes}=await import('/src/storage.js');return getNotes()});
+  assert.deepEqual(afterScroll,saved);
   if(process.env.NIB_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.NIB_SCREENSHOT_DIR,`nib-${width}-zoom.png`)});
   await page.locator('#paper-zoom-reset').click();
   assert.equal(await page.locator('#paper-zoom-reset').textContent(),'100%');
   if(process.env.NIB_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.NIB_SCREENSHOT_DIR,`nib-${width}-fixed.png`)});
   await page.reload();await page.waitForFunction(()=>!document.querySelector('.app').inert);
   assert.equal(await page.locator('#page-position').textContent(),'4 / 4');
-  console.log('PASS',width,'previous/next in order, first-page boundary, append only at end, fixed shell, native pinch/pan, pen coordinates, persistence');
+  console.log('PASS',width,'one-finger vertical scroll including over ink, fixed shell, previous/next in order, append only at end, pinch/pan, pen coordinates, persistence');
   await context.close();
  }
  assert.deepEqual(errors,[]);await browser.close();server.close();

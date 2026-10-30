@@ -8,7 +8,7 @@ function harness(nativeTouch = true) {
  const canvas = {contains:t=>t?.parent===canvas}, surface = {contains:t=>t===canvas||t?.parent===canvas,getBoundingClientRect:()=>({...state.rect})};
  const root = {hidden:false,addEventListener:(n,f)=>handlers[n]=f,removeEventListener:n=>delete handlers[n]};
  const viewport = {revision:()=>state.revision,begin:center=>({view:{...state.view},center}),move(start,center,ratio){state.view=movePaperView(start.view,start.center,center,ratio,{width:500,height:500,paperWidth:500,paperHeight:1000});return true;}};
- let ui; ui=mountPageSwipe({canvas,surface,root,nativeTouch,viewport,getPageId:()=>state.page,canStart:()=>state.allowed,canSwipe:()=>state.blank,getAction:direction=>direction>0?state.previous:state.next,beforeStart(){state.before++;ui.cancel()},navigate(action){calls.push(action);return state.result},onProgress:s=>hints.push(s)});
+ let ui; ui=mountPageSwipe({canvas,surface,root,nativeTouch,viewport,getPageId:()=>state.page,canStart:()=>state.allowed,canSwipe:()=>state.blank,canPan:()=>state.pan??state.blank,getAction:direction=>direction>0?state.previous:state.next,beforeStart(){state.before++;ui.cancel()},navigate(action){calls.push(action);return state.result},onProgress:s=>hints.push(s)});
  const touch=(id,x,y=200,extra={})=>({identifier:id,clientX:x,clientY:y,target:canvas,...extra});
  const send=(type,touches,changedTouches=touches)=>{const e={touches,changedTouches,cancelable:true,preventDefault(){this.prevented=true}};handlers[type]?.(e);return e};
  const pointer=(type,id,x,y=200,extra={})=>{const e={pointerId:id,pointerType:'touch',target:canvas,clientX:x,clientY:y,cancelable:true,preventDefault(){this.prevented=true},stopImmediatePropagation(){this.stopped=true},...extra};handlers[type]?.(e);return e};
@@ -21,8 +21,28 @@ test('long one-finger left drag adds once on release without moving the paper',(
  const h=harness(),before={...h.state.view};h.send('touchstart',[h.touch(1,300)]);assert.equal(h.send('touchmove',[h.touch(1,120)]).prevented,true);assert.deepEqual(h.calls,[]);assert.equal(h.hints.at(-1).ready,true);assert.deepEqual(h.state.view,before);
  h.send('touchend',[],[h.touch(1,120)]);h.send('touchend',[],[h.touch(1,120)]);assert.deepEqual(h.calls,['add']);assert.equal(h.hints.at(-1),null);
 });
-test('taps, short, first-page rightward, vertical and diagonal drags neither add nor pan',()=>{
- for(const [x,y] of [[0,0],[-139,0],[200,0],[0,200],[-180,120]]){const h=harness();h.swipe(x,y);assert.deepEqual(h.calls,[]);assert.deepEqual(h.state.view,{scale:1,x:0,y:0});}
+test('taps, short horizontal, first-page rightward and diagonal drags neither add nor pan',()=>{
+ for(const [x,y] of [[0,0],[-139,0],[200,0],[-180,120]]){const h=harness();h.swipe(x,y);assert.deepEqual(h.calls,[]);assert.deepEqual(h.state.view,{scale:1,x:0,y:0});}
+});
+test('one finger pans only vertically and retains its position after release',()=>{
+ const h=harness();h.swipe(5,-150);assert.deepEqual(h.state.view,{scale:1,x:0,y:-150});h.swipe(-5,50);assert.deepEqual(h.state.view,{scale:1,x:0,y:-100});assert.deepEqual(h.calls,[]);assert.equal(h.hints.at(-1),null);
+});
+test('vertical one-finger pan preserves zoom and horizontal offset',()=>{const h=harness();h.state.view={scale:2,x:-180,y:-300};h.swipe(20,-120);assert.deepEqual(h.state.view,{scale:2,x:-180,y:-420});assert.deepEqual(h.calls,[]);});
+test('vertical pan clamps at both paper edges and does not turn pages',()=>{const h=harness();h.state.previous='previous';h.swipe(0,200);assert.equal(h.state.view.y,0);h.swipe(0,-2000);assert.equal(h.state.view.y,-500);h.swipe(0,-200);assert.equal(h.state.view.y,-500);h.swipe(0,2000);assert.equal(h.state.view.y,0);assert.deepEqual(h.calls,[]);});
+test('paper that fits stays fixed during vertical drag without creating pages',()=>{const h=harness();h.state.view={scale:.5,x:125,y:0};h.swipe(0,-200);assert.deepEqual(h.state.view,{scale:.5,x:125,y:0});assert.deepEqual(h.calls,[]);});
+test('vertical direction stays locked even if the finger later travels horizontally',()=>{
+ const h=harness();h.send('touchstart',[h.touch(1,300,350)]);h.send('touchmove',[h.touch(1,300,320)]);h.send('touchmove',[h.touch(1,50,300)]);h.send('touchend',[],[h.touch(1,50,300)]);assert.equal(h.state.view.y,-50);assert.equal(h.state.view.x,0);assert.deepEqual(h.calls,[]);
+});
+test('horizontal gesture cannot change into scrolling halfway through',()=>{const h=harness();h.send('touchstart',[h.touch(1,300,350)]);h.send('touchmove',[h.touch(1,270,350)]);h.send('touchend',[],[h.touch(1,270,100)]);assert.deepEqual(h.state.view,{scale:1,x:0,y:0});assert.deepEqual(h.calls,[]);});
+test('pan-only contacts may scroll but never navigate horizontally',()=>{const h=harness();h.state.blank=false;h.state.pan=true;h.swipe(0,-100);assert.equal(h.state.view.y,-100);h.swipe(-200);assert.deepEqual(h.calls,[]);});
+test('one-finger scrolling can become a pinch without jumping or promoting a remaining finger',()=>{
+ const h=harness();h.send('touchstart',[h.touch(1,200,300)]);h.send('touchmove',[h.touch(1,200,200)]);assert.equal(h.state.view.y,-100);h.send('touchstart',[h.touch(1,200,200),h.touch(2,300,200)]);h.send('touchmove',[h.touch(1,200,200),h.touch(2,300,200)]);assert.equal(h.state.view.y,-100);h.send('touchmove',[h.touch(1,150,200),h.touch(2,350,200)]);assert.equal(h.state.view.scale,2);const after={...h.state.view};h.send('touchend',[h.touch(1,150,200)],[h.touch(2,350,200)]);h.send('touchmove',[h.touch(1,150,100)]);h.send('touchend',[],[h.touch(1,150,100)]);assert.deepEqual(h.state.view,after);assert.deepEqual(h.calls,[]);
+});
+test('pointer-only vertical pan releases cleanly and cancellation stops further movement',()=>{
+ const h=harness(false);h.pointer('pointerdown',1,200,300);h.pointer('pointermove',1,200,200);assert.equal(h.state.view.y,-100);h.pointer('pointercancel',1,200,200);h.pointer('pointerup',1,200,100);assert.equal(h.state.view.y,-100);h.pointer('pointerdown',2,200,300);h.pointer('pointerup',2,200,250);assert.equal(h.state.view.y,-150);assert.deepEqual(h.calls,[]);
+});
+test('reset, page change, hidden and Pencil interrupt an active one-finger pan',()=>{
+ for(const action of [h=>h.state.revision++,h=>h.state.page='b',h=>{h.root.hidden=true;h.handlers.visibilitychange()},h=>h.pointer('pointerdown',9,200,200,{pointerType:'pen'})]){const h=harness();h.send('touchstart',[h.touch(1,300,300)]);h.send('touchmove',[h.touch(1,300,200)]);action(h);h.send('touchend',[],[h.touch(1,300,100)]);assert.equal(h.state.view.y,-100);assert.deepEqual(h.calls,[]);}
 });
 test('right drag goes back once on release and left drag prefers an existing next page',()=>{
  for(const [dx,action] of [[180,'previous'],[-180,'next']]){const h=harness();h.state.previous='previous';h.state.next='next';h.send('touchstart',[h.touch(1,250)]);h.send('touchmove',[h.touch(1,250+dx)]);assert.deepEqual(h.calls,[]);assert.equal(h.hints.at(-1).action,action);assert.equal(h.hints.at(-1).ready,true);h.send('touchend',[],[h.touch(1,250+dx)]);h.send('touchend',[],[h.touch(1,250+dx)]);assert.deepEqual(h.calls,[action]);}
