@@ -29,7 +29,7 @@ import {APP_VERSION,safeAppReload,checkAppUpdate} from './app-update.js';
 import {snapshotRect,geometryStable,inputPoint,eventSamples,acceptsPointer,rasterPlan} from './ink-input.js';
 import {makeFontRecord,listCustomFonts,storeCustomFont,deleteCustomFont,loadCustomFace,customFontId} from './custom-fonts.js';
 import {PAGE,FONTS,makeNote,smoothPoints,strokePath,escapeXml,History,parseBackup,validateNote,backupParts,id} from './core.js';
-import {getNotes,saveNote,removeNote,saveNotesBatch,removeNotesBatch,removePageSafely} from './storage.js';
+import {getNotes,saveNote,removeNote,saveNotesBatch,prepareNotesSave,removeNotesBatch,removePageSafely} from './storage.js';
 const $=id=>document.getElementById(id);document.querySelector('.app').inert=true; const NS='http://www.w3.org/2000/svg';let notes=[],note,history=new History(),drawing=null,tool='pen',saveTimer,saveSerial=0,textBefore=null,accessToken='',recognizing=false,aiConfigured=false,switching=false,saveQueue=Promise.resolve(true);const revisions=new Map(),dirtyNotes=new Set(),pageHistories=new Map(),lastPages=new Map(),importSets=new Map();let customFonts=[],fontBusy=false,strokeRect=null,showResult=false;const customFaces=new Map();let autoEnabled=false,autoEngine=null,inkRevision=0,pendingAuto=false,sessionConsent=false,sessionAutoConsent=false;const converted=new Map();const recognitionResults=new Map(),retryWarnings=new Set();
 const recognitionBudget=createRecognitionBudget();
 let activeRecognition=null;let drawingTools=null;let pageSwipe=null;let paperViewport=null;
@@ -52,7 +52,22 @@ function toast(text){$('toast').textContent=text;$('toast').style.display='block
 function date(t){return new Date(t).toLocaleDateString('ko-KR',{month:'long',day:'numeric'})}
 function setSave(text,error=false){$('save-state').textContent=text;$('save-state').classList.toggle('error',error)}
 function dirty(){note.updatedAt=Date.now();notes=notes.map(n=>n.id===note.id?note:n);dirtyNotes.add(note.id);setSave('저장 중…');clearTimeout(saveTimer);saveTimer=setTimeout(flush,350);buttons();}
-async function flush(){clearTimeout(saveTimer);const copies=notes.filter(n=>dirtyNotes.has(n.id)).map(n=>structuredClone(n));if(!copies.length)return saveQueue;for(const n of copies)dirtyNotes.delete(n.id);const serial=++saveSerial;saveQueue=saveQueue.catch(()=>false).then(async()=>{try{const result=await saveNotesBatch(copies,new Map(copies.map(n=>[n.id,revisions.get(n.id)||0])));for(const [key,rev]of result)revisions.set(key,rev);if(serial===saveSerial)setSave(dirtyNotes.size?'저장 대기…':'기기에 저장됨');return dirtyNotes.size===0;}catch(e){for(const n of copies)dirtyNotes.add(n.id);setSave('저장 실패 · 백업 필요',true);toast(e.message||'저장 공간을 확인하고 백업을 내려받아주세요.');return false;}});return saveQueue;}
+async function flush(){
+ clearTimeout(saveTimer);
+ const pages=notes.filter(n=>dirtyNotes.has(n.id));if(!pages.length)return saveQueue;
+ // The storage job privately owns one detached snapshot. Resolve revisions only
+ // when this queued job runs, after any earlier transaction has completed.
+ const job=prepareNotesSave(pages);
+ for(const key of job.ids)dirtyNotes.delete(key);
+ const serial=++saveSerial;
+ saveQueue=saveQueue.catch(()=>false).then(async()=>{try{
+  const result=await job.commit(new Map(job.ids.map(key=>[key,revisions.get(key)||0])));
+  for(const [key,rev]of result)revisions.set(key,rev);
+  if(serial===saveSerial)setSave(dirtyNotes.size?'저장 대기…':'기기에 저장됨');
+  return dirtyNotes.size===0;
+ }catch(e){for(const key of job.ids)dirtyNotes.add(key);setSave('저장 실패 · 백업 필요',true);toast(e.message||'저장 공간을 확인하고 백업을 내려받아주세요.');return false;}});
+ return saveQueue;
+}
 function rememberPage(){lastPages.set(notebookId(note),note.id);try{localStorage.setItem('nib-active-page',note.id);localStorage.setItem('nib-last-pages',JSON.stringify([...lastPages].slice(-100)))}catch{}}
 function activatePage(page){if(note&&notes.some(p=>p.id===note.id))pageHistories.set(note.id,history);note=page;history=pageHistories.get(page.id)||new History();pageHistories.delete(page.id);while(pageHistories.size>8)pageHistories.delete(pageHistories.keys().next().value);inkRevision++;showResult=false;rememberPage();render();if(typeof paperViewport!=='undefined')paperViewport?.reset();$('auto-status').textContent='이 페이지에 바로 쓰세요. 자동 변환은 페이지마다 다시 켤 수 있어요.';}
 async function transition(fn){if(switching)return;const restoreMenuFocus=!$('sidebar').hidden;stopAuto('노트 전환으로 자동 변환을 껐습니다.');switching=true;document.querySelector('.app').inert=true;try{endStroke();commitText();if(await flush()===false)return;clearSelection();$('ocr-dialog').close();$('pages-dialog').close();await fn();}catch(e){toast(e.message||'페이지 전환에 실패했습니다. 원본을 확인해주세요.');}finally{switching=false;document.querySelector('.app').inert=false;if(restoreMenuFocus&&$('sidebar').hidden)$('menu').focus();}}
