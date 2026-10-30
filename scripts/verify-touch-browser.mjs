@@ -37,6 +37,27 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   await send('touchEnd',[]);
   await page.waitForFunction(()=>document.querySelector('#page-position').textContent==='2 / 2');
   assert.equal(await page.locator('#page-add-hint').isHidden(),true);
+  // Visit adjacent pages in order. Only the final page may append a new page.
+  async function turn(direction,position,label){
+   const start=direction>0?box.x+box.width*.2:x;
+   const current=await page.locator('#page-position').textContent();
+   const fixedPaper=await page.locator('#page').getAttribute('style');
+   await send('touchStart',[[1,start,y]]);
+   for(let i=1;i<=6;i++)await send('touchMove',[[1,start+direction*drag*i/6,y]]);
+   assert.equal(await page.locator('#page-position').textContent(),current);
+   assert.equal(await page.locator('#page').getAttribute('style'),fixedPaper);
+   if(label)assert.equal(await page.locator('#page-add-hint').textContent(),label);
+   else assert.equal(await page.locator('#page-add-hint').isHidden(),true);
+   await send('touchEnd',[]);
+   await page.waitForFunction(expected=>document.querySelector('#page-position').textContent===expected&&!document.querySelector('.app').inert,position);
+  }
+  await turn(-1,'3 / 3','놓으면 새 페이지 추가');
+  await turn(1,'2 / 3','놓으면 이전 페이지로 이동');
+  await turn(1,'1 / 3','놓으면 이전 페이지로 이동');
+  await turn(1,'1 / 3',null);
+  await turn(-1,'2 / 3','놓으면 다음 페이지로 이동');
+  await turn(-1,'3 / 3','놓으면 다음 페이지로 이동');
+  await turn(-1,'4 / 4','놓으면 새 페이지 추가');
   // Native multi-touch must change the paper scale, never the visual viewport.
   const cx=box.x+box.width/2,cy=box.y+Math.min(170,box.height/2);
   await send('touchStart',[[1,cx-40,cy]]);await send('touchStart',[[1,cx-40,cy],[2,cx+40,cy]]);
@@ -46,7 +67,7 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   // Pan only with two contacts; leave one then move it without a new page.
   await send('touchStart',[[1,cx-40,cy],[2,cx+40,cy]]);await send('touchMove',[[1,cx-40,cy-60],[2,cx+40,cy-60]]);
   await send('touchEnd',[[1,cx-40,cy-60]]);await send('touchMove',[[1,cx-180,cy-60]]);await send('touchEnd',[]);
-  assert.equal(await page.locator('#page-position').textContent(),'2 / 2');
+  assert.equal(await page.locator('#page-position').textContent(),'4 / 4');
   const shell=await page.evaluate(()=>({top:document.querySelector('.editor-chrome').getBoundingClientRect().top,left:document.querySelector('.editor-chrome').getBoundingClientRect().left,scale:visualViewport.scale,scrollX,scrollY}));
   for(const key of Object.keys(shell))assert.equal(shell[key],original[key],key);
   // Pointer coordinate conversion after the paper has both zoomed and panned.
@@ -65,8 +86,8 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   assert.equal(await page.locator('#paper-zoom-reset').textContent(),'100%');
   if(process.env.NIB_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.NIB_SCREENSHOT_DIR,`nib-${width}-fixed.png`)});
   await page.reload();await page.waitForFunction(()=>!document.querySelector('.app').inert);
-  assert.equal(await page.locator('#page-position').textContent(),'2 / 2');
-  console.log('PASS',width,'fixed shell, one-page release, native pinch/pan, pen coordinates, persistence');
+  assert.equal(await page.locator('#page-position').textContent(),'4 / 4');
+  console.log('PASS',width,'previous/next in order, first-page boundary, append only at end, fixed shell, native pinch/pan, pen coordinates, persistence');
   await context.close();
  }
  assert.deepEqual(errors,[]);await browser.close();server.close();

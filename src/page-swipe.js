@@ -1,6 +1,6 @@
 /** Own paper gestures from first contact; never move/zoom the browser viewport. */
 export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
-  canAdd = () => false, beforeStart = () => {}, addPage, viewport,
+  canSwipe = () => false, getAction = () => null, beforeStart = () => {}, navigate, viewport,
   onProgress = () => {}, root = document,
   nativeTouch = 'ontouchstart' in (root.defaultView || {})}) {
   let gesture = null, blocked = false, busy = false, disposed = false;
@@ -31,9 +31,9 @@ export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
       gesture = {kind: 'view', ids: ts.map(t => t.identifier), gap: gap(ts), view: viewport.begin(center(ts)), pageId: getPageId(), rect: surface.getBoundingClientRect(), revision: viewport.revision()};
       onProgress(null); return;
     }
-    if (ts.length !== 1 || gesture || !onCanvas(ts[0]) || !canAdd(ts[0])) return;
+    if (ts.length !== 1 || gesture || !onCanvas(ts[0]) || !canSwipe(ts[0])) return;
     const rect = surface.getBoundingClientRect();
-    gesture = {kind: 'add', id: ts[0].identifier, start: point(ts[0]), current: point(ts[0]), pageId: getPageId(), rect, revision: viewport?.revision(), threshold: Math.max(120, Math.min(220, rect.width * .28)), ready: false};
+    gesture = {kind: 'page', id: ts[0].identifier, start: point(ts[0]), current: point(ts[0]), pageId: getPageId(), rect, revision: viewport?.revision(), threshold: Math.max(120, Math.min(220, rect.width * .28)), ready: false, action: null};
   }
   function move(ts) {
     if (!gesture) return;
@@ -47,21 +47,23 @@ export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
     if (ts.length !== 1 || ts[0].identifier !== g.id) {cancel(); return;}
     g.current = point(ts[0]);
     const dx = g.current.x - g.start.x, dy = g.current.y - g.start.y;
-    // Lock out vertical intent; returning below the threshold disarms the add.
+    // Lock out vertical intent; returning below the threshold disarms the turn.
     if (Math.abs(dy) > 24 && Math.abs(dy) >= Math.abs(dx)) {cancel(); return;}
-    g.ready = dx <= -g.threshold && Math.abs(dx) >= Math.abs(dy) * 2;
-    onProgress(dx < -24 ? {ready: g.ready, progress: Math.min(1, -dx / g.threshold)} : null);
+    const direction = Math.sign(dx);
+    g.action = direction ? getAction(direction) : null;
+    g.ready = !!g.action && Math.abs(dx) >= g.threshold && Math.abs(dx) >= Math.abs(dy) * 2;
+    onProgress(g.action && Math.abs(dx) > 24 ? {action: g.action, direction, ready: g.ready, progress: Math.min(1, Math.abs(dx) / g.threshold)} : null);
   }
   function end(remaining, changed) {
     const g = gesture;
-    if (g?.kind === 'add' && !remaining.length) {
+    if (g?.kind === 'page' && !remaining.length) {
       const last = changed.find(t => t.identifier === g.id);
       if (last) move([last]); else cancel();
-      const create = gesture?.ready === true && context();
+      const action = gesture?.ready === true && context() ? gesture.action : null;
       gesture = null; onProgress(null);
-      if (create) {
+      if (action) {
         busy = true;
-        try {Promise.resolve(addPage()).catch(() => {}).finally(() => {busy = false;});} catch {busy = false;}
+        try {Promise.resolve(navigate(action)).catch(() => {}).finally(() => {busy = false;});} catch {busy = false;}
       }
     } else if (g) cancel();
     // No 2 -> 1 promotion: release every finger before starting another action.
