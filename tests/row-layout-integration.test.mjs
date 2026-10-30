@@ -39,7 +39,7 @@ test('removing or changing every source stroke cannot relocate or reflow a durab
 test('owned moved bounds, not remembered source geometry, determine the next rendered position',()=>{
   const h=layoutHarness(),moved={...first,bounds:{...first.bounds,x:first.bounds.x+30,y:first.bounds.y+80}};
   const row=h.groupLayout(moved).rows[0];assert.deepEqual(plain(row.bounds),moved.bounds);assert.equal(row.text,first.text);
-  assert.equal(h.groupLayout(second).rows[0].bounds,second.bounds);
+  const secondBounds=h.groupLayout(second).rows[0].bounds;assert.deepEqual(plain(secondBounds),second.bounds);assert.notEqual(secondBounds,second.bounds);
 });
 
 test('new writing inside an earlier conversion reads only new ink and never silently replaces its full text',()=>{
