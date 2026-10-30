@@ -53,6 +53,46 @@ function primitives(object){const o=validateDrawingObjects([object])[0],b=o.boun
  if(o.type==='table'){const cw=b.width/o.cols,ch=b.height/o.rows;for(let c=1;c<o.cols;c++)line(b.x+c*cw,b.y,b.x+c*cw,b.y+b.height);for(let r=1;r<o.rows;r++)line(b.x,b.y+r*ch,b.x+b.width,b.y+r*ch);for(let r=0;r<o.rows;r++)for(let c=0;c<o.cols;c++)label(o.cells[r][c],{x:b.x+c*cw,y:b.y+r*ch,width:cw,height:ch});}else if(o.text){let inner=b;if(o.type==='ellipse')inner={x:b.x+b.width*.15,y:b.y+b.height*.18,width:b.width*.7,height:b.height*.64};if(o.type==='diamond')inner={x:b.x+b.width*.27,y:b.y+b.height*.27,width:b.width*.46,height:b.height*.46};if(o.type==='triangle')inner={x:b.x+b.width*.28,y:b.y+b.height*.48,width:b.width*.44,height:b.height*.42};label(o.text,inner,true);}
  return {o,shapes:p,text,textColor:labelColor(o)};
 }
+const segmentDistance=(p,a,b)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);};
+function sweepHitsSegment(a,b,c,d,r){
+ const vx=b.x-a.x,vy=b.y-a.y,wx=d.x-c.x,wy=d.y-c.y,cx=c.x-a.x,cy=c.y-a.y,den=vx*wy-vy*wx;
+ if(den!==0){const t=(cx*wy-cy*wx)/den,u=(cx*vy-cy*vx)/den;if(t>=0&&t<=1&&u>=0&&u<=1)return true;}
+ return Math.min(segmentDistance(a,c,d),segmentDistance(b,c,d),segmentDistance(c,a,b),segmentDistance(d,a,b))<=r;
+}
+function sweepHitsPolygon(a,b,points,r){
+ let inside=false;
+ for(let i=0,j=points.length-1;i<points.length;j=i++){
+  const p=points[j],q=points[i];
+  if(sweepHitsSegment(a,b,p,q,r))return true;
+  if((p.y>a.y)!==(q.y>a.y)&&a.x<(q.x-p.x)*(a.y-p.y)/(q.y-p.y)+p.x)inside=!inside;
+ }
+ return inside;
+}
+const boxPoints=b=>[{x:b.x,y:b.y},{x:b.x+b.width,y:b.y},{x:b.x+b.width,y:b.y+b.height},{x:b.x,y:b.y+b.height}];
+/** Remove touched drawing objects as units, including their labels/table cells.
+ * Test the whole swept circle so sparse or fast pointer samples cannot skip them.
+ * Closed shapes include their interior; lines/arrows use their actual segments.
+ */
+export function eraseDrawingObjects(objects,from,to=from,radius=20){
+ if(!Array.isArray(objects))throw new TypeError('drawing objects must be an array');
+ const unchanged=()=>({objects,changed:false,removedIds:[]});
+ if(!from||!to||![from.x,from.y,to.x,to.y,radius].every(Number.isFinite)||radius<=0)return unchanged();
+ const normalized=validateDrawingObjects(objects),removedIds=[],remaining=[];
+ for(let i=0;i<objects.length;i++){
+  const {o,shapes,text}=primitives(normalized[i]),r=radius+o.width/2;
+  const hit=shapes.some(s=>{
+   if(s.type==='line')return sweepHitsSegment(from,to,{x:s.x1,y:s.y1},{x:s.x2,y:s.y2},r);
+   if(s.type==='rect')return sweepHitsPolygon(from,to,boxPoints(s),r);
+   if(s.type==='polygon')return sweepHitsPolygon(from,to,s.points.map(([x,y])=>({x,y})),r);
+   // Inscribed ellipse polygon stays within 0.1 page unit of its true outline.
+   const count=Math.max(32,Math.ceil(Math.PI*Math.sqrt(Math.max(s.rx,s.ry)/.2)));
+   const points=Array.from({length:count},(_,j)=>{const angle=j*2*Math.PI/count;return {x:s.cx+s.rx*Math.cos(angle),y:s.cy+s.ry*Math.sin(angle)}});
+   return sweepHitsPolygon(from,to,points,r+.1);
+  })||text.some(t=>t.lines.some(line=>line.length)&&sweepHitsPolygon(from,to,boxPoints(t.box),radius));
+  if(hit)removedIds.push(o.id);else remaining.push(objects[i]);
+ }
+ return removedIds.length?{objects:remaining,changed:true,removedIds}:unchanged();
+}
 export function objectSVG(object){const {o,shapes,text,textColor}=primitives(object),style=`stroke="${o.color}" stroke-width="${o.width}" stroke-linecap="round" stroke-linejoin="round"`;const parts=shapes.map(s=>s.type==='line'?`<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}" ${style}/>`:s.type==='polygon'?`<polygon points="${s.points.map(p=>p.join(',')).join(' ')}" fill="${o.fill}" ${style}/>`:`<${s.type} ${Object.entries(s).filter(([k])=>k!=='type').map(([k,v])=>`${k}="${v}"`).join(' ')} fill="${o.fill}" ${style}/>`);
  text.forEach(t=>{parts.push(`<svg x="${t.box.x}" y="${t.box.y}" width="${t.box.width}" height="${t.box.height}" viewBox="${t.box.x} ${t.box.y} ${t.box.width} ${t.box.height}" overflow="hidden" fill="${textColor}" font-family="${o.font}, NanumPenScript, sans-serif" font-size="${o.fontSize}" text-anchor="${t.align==='center'?'middle':'start'}">${t.lines.map((line,j)=>`<text x="${t.x}" y="${t.y+j*t.lineHeight}">${escape(line)}</text>`).join('')}</svg>`);});return parts.join('');}
 export function drawDrawingObject(ctx,object){const {o,shapes,text,textColor}=primitives(object);ctx.save();try{ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.strokeStyle=o.color;ctx.lineWidth=o.width;ctx.lineCap='round';ctx.lineJoin='round';ctx.setLineDash?.([]);for(const s of shapes){ctx.beginPath();if(s.type==='line'){ctx.moveTo(s.x1,s.y1);ctx.lineTo(s.x2,s.y2);}else if(s.type==='rect')ctx.rect(s.x,s.y,s.width,s.height);else if(s.type==='ellipse')ctx.ellipse(s.cx,s.cy,s.rx,s.ry,0,0,Math.PI*2);else{s.points.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();}if(s.type!=='line'&&o.fill!=='none'){ctx.fillStyle=o.fill;ctx.fill();}ctx.stroke();}ctx.fillStyle=textColor;ctx.font=`${o.fontSize}px ${o.font}, NanumPenScript, sans-serif`;ctx.textBaseline='alphabetic';ctx.textAlign='left';for(const t of text){ctx.save();try{ctx.beginPath();ctx.rect(t.box.x,t.box.y,t.box.width,t.box.height);ctx.clip();ctx.textAlign=t.align;t.lines.forEach((line,i)=>ctx.fillText(line,t.x,t.y+i*t.lineHeight));}finally{ctx.restore();}}}finally{ctx.restore();}}

@@ -102,9 +102,47 @@ const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright')
   await page.locator('#paper-zoom-reset').click();
   assert.equal(await page.locator('#paper-zoom-reset').textContent(),'100%');
   if(process.env.NIB_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.NIB_SCREENSHOT_DIR,`nib-${width}-fixed.png`)});
+  // Draw real objects through the UI, then erase both in one zoomed pen gesture.
+  async function penDrag(from,to){
+   const rect=await page.locator('#canvas').boundingBox();
+   const a={x:rect.x+from.x*rect.width/900,y:rect.y+from.y*rect.height/1200};
+   const b={x:rect.x+to.x*rect.width/900,y:rect.y+to.y*rect.height/1200};
+   await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',...a,button:'left',buttons:1,clickCount:1,pointerType:'pen',force:.5});
+   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...b,button:'left',buttons:1,pointerType:'pen',force:.5});
+   await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',...b,button:'left',buttons:0,clickCount:1,pointerType:'pen'});
+  }
+  await page.locator('#open-drawing').click();
+  await page.locator('[data-drawing-tool="ellipse"]').click();
+  await penDrag({x:100,y:100},{x:250,y:200});
+  await page.waitForFunction(()=>document.querySelectorAll('#drawing-objects ellipse').length===1);
+  await page.locator('[data-drawing-tool="table"]').click();
+  await penDrag({x:100,y:400},{x:250,y:550});
+  await page.waitForFunction(()=>document.querySelectorAll('#drawing-objects rect:not([pointer-events])').length===1);
+  await page.locator('#drawing-rows').fill('2');
+  await page.locator('#drawing-cols').fill('2');
+  await page.locator('#drawing-cell-text').fill('테스트');
+  await page.locator('#drawing-cell-set').click();
+  await page.locator('#drawing-save').click();
+  await page.waitForFunction(()=>document.querySelector('#drawing-objects').textContent.includes('테스트'));
+  await page.locator('#eraser').click();
+  assert.equal(await page.locator('#drawing-palette').isHidden(),true);
+  await page.locator('#paper-zoom-in').click();
+  await penDrag({x:175,y:150},{x:175,y:475});
+  await page.waitForFunction(()=>document.querySelector('#drawing-objects').innerHTML==='');
+  await page.locator('#undo').click();
+  await page.waitForFunction(()=>document.querySelectorAll('#drawing-objects ellipse').length===1&&document.querySelectorAll('#drawing-objects rect').length===1);
+  assert.ok((await page.locator('#drawing-objects').textContent()).includes('테스트'));
+  await page.locator('#redo').click();
+  await page.waitForFunction(()=>document.querySelector('#drawing-objects').innerHTML==='');
+  await page.waitForTimeout(450);
+  const erased=await page.evaluate(async()=>{const {getNotes}=await import('/src/storage.js');return getNotes()});
+  const erasedPage=erased.find(n=>n.strokes.length);
+  assert.equal(erasedPage.drawingObjects.length,0);
+  assert.deepEqual(erasedPage.strokes,saved.find(n=>n.id===erasedPage.id).strokes);
   await page.reload();await page.waitForFunction(()=>!document.querySelector('.app').inert);
   assert.equal(await page.locator('#page-position').textContent(),'4 / 4');
-  console.log('PASS',width,'one-finger vertical scroll including over ink, fixed shell, previous/next in order, append only at end, pinch/pan, pen coordinates, persistence');
+  assert.equal(await page.locator('#drawing-objects').innerHTML(),'');
+  console.log('PASS',width,'drawing/table eraser with undo/redo and persistence, one-finger scroll, fixed shell, previous/next, pinch/pan, pen coordinates');
   await context.close();
  }
  assert.deepEqual(errors,[]);await browser.close();server.close();
