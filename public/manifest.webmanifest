@@ -1,1 +1,1 @@
-{"name":"Nib · 나의 글씨","short_name":"Nib","start_url":"./","display":"standalone","background_color":"#f3f5f8","theme_color":"#172437","icons":[{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{"name":"모아노트 · MOA NOTE","short_name":"모아노트","start_url":"./","display":"standalone","background_color":"#f3f5f8","theme_color":"#172437","icons":[{"src":"./brand/moa-note-192.png","sizes":"192x192","type":"image/png","purpose":"any"},{"src":"./brand/moa-note-icon.png","sizes":"512x512","type":"image/png","purpose":"any"}],"description":"나의 필기와 생각을 모으는 모아노트"}
