@@ -1,4 +1,5 @@
 import {mountPageSwipe} from './page-swipe.js';
+import {mountPaperViewport} from './paper-viewport.js';
 import {blankPaperPoint} from './touch-hit.js';
 import {mountDrawingTools} from './drawing-tools.js';
 import {drawDrawingObject} from './drawing-objects.js';
@@ -31,7 +32,7 @@ import {PAGE,FONTS,makeNote,smoothPoints,strokePath,escapeXml,History,parseBacku
 import {getNotes,saveNote,removeNote,saveNotesBatch,removeNotesBatch,removePageSafely} from './storage.js';
 const $=id=>document.getElementById(id);document.querySelector('.app').inert=true; const NS='http://www.w3.org/2000/svg';let notes=[],note,history=new History(),drawing=null,tool='pen',saveTimer,saveSerial=0,textBefore=null,accessToken='',recognizing=false,aiConfigured=false,switching=false,saveQueue=Promise.resolve(true);const revisions=new Map(),dirtyNotes=new Set(),pageHistories=new Map(),lastPages=new Map(),importSets=new Map();let customFonts=[],fontBusy=false,strokeRect=null,showResult=false;const customFaces=new Map();let autoEnabled=false,autoEngine=null,inkRevision=0,pendingAuto=false,sessionConsent=false,sessionAutoConsent=false;const converted=new Map();const recognitionResults=new Map(),retryWarnings=new Set();
 const recognitionBudget=createRecognitionBudget();
-let activeRecognition=null;let drawingTools=null;let pageSwipe=null;
+let activeRecognition=null;let drawingTools=null;let pageSwipe=null;let paperViewport=null;
 let selectedIds=[],selectedObjectIds=[],selectionEpoch=0,pendingSelected=false,pendingSelectionEpoch=null;
 function clearSelection(){$('object-editor').hidden=true;selectionEpoch++;selectedIds=[];selectedObjectIds=[];$('selection-actions').hidden=true;$('lasso-path').toggleAttribute('hidden',true);$('selection-box').toggleAttribute('hidden',true);}
 function drawSelection(rect=null){const b=rect||selectionBounds(note.strokes,note.convertedGroups||[],selectedIds,selectedObjectIds),el=$('selection-box');el.toggleAttribute('hidden',!b||tool!=='select'||drawing?.directTouch===true);if(b)for(const [k,v]of Object.entries(b))el.setAttribute(k,v);$('selection-actions').hidden=!b||tool!=='select'||!(selectedIds.length||selectedObjectIds.length)||drawing?.directTouch===true;$('selection-info').textContent=selectedIds.length+'획 · '+selectedObjectIds.length+'객체 선택';$('selection-convert').disabled=!selectedIds.length;$('selection-edit').disabled=selectedObjectIds.length!==1;$('selection-restore').disabled=!selectedObjectIds.length;}
@@ -53,7 +54,7 @@ function setSave(text,error=false){$('save-state').textContent=text;$('save-stat
 function dirty(){note.updatedAt=Date.now();notes=notes.map(n=>n.id===note.id?note:n);dirtyNotes.add(note.id);setSave('저장 중…');clearTimeout(saveTimer);saveTimer=setTimeout(flush,350);buttons();}
 async function flush(){clearTimeout(saveTimer);const copies=notes.filter(n=>dirtyNotes.has(n.id)).map(n=>structuredClone(n));if(!copies.length)return saveQueue;for(const n of copies)dirtyNotes.delete(n.id);const serial=++saveSerial;saveQueue=saveQueue.catch(()=>false).then(async()=>{try{const result=await saveNotesBatch(copies,new Map(copies.map(n=>[n.id,revisions.get(n.id)||0])));for(const [key,rev]of result)revisions.set(key,rev);if(serial===saveSerial)setSave(dirtyNotes.size?'저장 대기…':'기기에 저장됨');return dirtyNotes.size===0;}catch(e){for(const n of copies)dirtyNotes.add(n.id);setSave('저장 실패 · 백업 필요',true);toast(e.message||'저장 공간을 확인하고 백업을 내려받아주세요.');return false;}});return saveQueue;}
 function rememberPage(){lastPages.set(notebookId(note),note.id);try{localStorage.setItem('nib-active-page',note.id);localStorage.setItem('nib-last-pages',JSON.stringify([...lastPages].slice(-100)))}catch{}}
-function activatePage(page){if(note&&notes.some(p=>p.id===note.id))pageHistories.set(note.id,history);note=page;history=pageHistories.get(page.id)||new History();pageHistories.delete(page.id);while(pageHistories.size>8)pageHistories.delete(pageHistories.keys().next().value);inkRevision++;showResult=false;rememberPage();render();$('auto-status').textContent='이 페이지에 바로 쓰세요. 자동 변환은 페이지마다 다시 켤 수 있어요.';}
+function activatePage(page){if(note&&notes.some(p=>p.id===note.id))pageHistories.set(note.id,history);note=page;history=pageHistories.get(page.id)||new History();pageHistories.delete(page.id);while(pageHistories.size>8)pageHistories.delete(pageHistories.keys().next().value);inkRevision++;showResult=false;rememberPage();render();if(typeof paperViewport!=='undefined')paperViewport?.reset();$('auto-status').textContent='이 페이지에 바로 쓰세요. 자동 변환은 페이지마다 다시 켤 수 있어요.';}
 async function transition(fn){if(switching)return;const restoreMenuFocus=!$('sidebar').hidden;stopAuto('노트 전환으로 자동 변환을 껐습니다.');switching=true;document.querySelector('.app').inert=true;try{endStroke();commitText();if(await flush()===false)return;clearSelection();$('ocr-dialog').close();$('pages-dialog').close();await fn();}catch(e){toast(e.message||'페이지 전환에 실패했습니다. 원본을 확인해주세요.');}finally{switching=false;document.querySelector('.app').inert=false;if(restoreMenuFocus&&$('sidebar').hidden)$('menu').focus();}}
 function buttons(){$('undo').disabled=!history.past.length;$('redo').disabled=!history.future.length;$('empty-hint').hidden=!isWriting()||note.strokes.length>0||activeConvertedGroups(note.convertedGroups||[],note.strokes).length>0||(note.drawingObjects||[]).length>0||!!drawing;}
 const displayCache=new WeakMap();
@@ -83,7 +84,7 @@ $('pages-more').onclick=()=>{pageOverviewOffset+=24;showPages(false)};$('pages-p
 $('page-position').onclick=showPages;$('close-pages').onclick=()=>$('pages-dialog').close();
 $('previous-page').onclick=()=>{const pages=pagesFor(notes,notebookId(note)),i=pages.findIndex(p=>p.id===note.id);if(i>0)switchNote(pages[i-1].id);};
 $('next-page').onclick=()=>{const pages=pagesFor(notes,notebookId(note)),i=pages.findIndex(p=>p.id===note.id);if(i<pages.length-1)switchNote(pages[i+1].id);};
-$('add-page').onclick=()=>transition(async()=>{if(notes.length>=1000)return toast('전체 1,000페이지까지 저장할 수 있습니다. 먼저 백업해주세요.');const page=createPage(notes,note);notes.push(page);activatePage(page);dirty();setSidebar(false);});
+$('add-page').onclick=()=>transition(async()=>{if(notes.length>=1000)return toast('전체 1,000페이지까지 저장할 수 있습니다. 먼저 백업해주세요.');const page=createPage(notes,note);const revision=await saveNote(page);revisions.set(page.id,revision);notes.push(page);activatePage(page);setSave('기기에 저장됨');setSidebar(false);});
 async function deleteCurrentPage(){
  if(switching)return false;const target=note,bookId=notebookId(target),pages=pagesFor(notes,bookId),index=pages.findIndex(p=>p.id===target.id);
  if(pages.length<=1){toast('노트에는 최소 한 페이지가 필요합니다. 노트 전체 삭제는 서재에서 해주세요.');return false;}
@@ -122,14 +123,14 @@ $('canvas').addEventListener('pointermove',e=>{if(!drawing){if(tool==='eraser'&&
 $('canvas').addEventListener('pointerup',e=>{if(drawing?.pointerId!==e.pointerId)return;appendSamples(e);endStroke(true)});
 $('canvas').addEventListener('pointerleave',()=>{if(!drawing)showEraser(null)});
 for(const name of ['pointercancel','lostpointercapture'])$('canvas').addEventListener(name,e=>{if(drawing?.pointerId===e.pointerId){endStroke();showEraser(null)}});
-// Keep native pinch available from the first finger, including object drags.
-// Only an active Pencil contact suppresses palm-driven touch scrolling.
+// Active Pencil contact suppresses palm-driven touch scrolling outside the paper.
+// Paper touch gestures are owned by pageSwipe; its zoom never changes the chrome.
 const activePenPointers=new Set();
 document.addEventListener('pointerdown',e=>{if(e.pointerType==='pen'&&(e.target===$('canvas')||$('canvas').contains?.(e.target)))activePenPointers.add(e.pointerId)},{capture:true});
 for(const type of ['pointerup','pointercancel'])document.addEventListener(type,e=>activePenPointers.delete(e.pointerId),{capture:true});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)activePenPointers.clear()});
 for(const name of ['touchmove','wheel'])document.addEventListener(name,e=>{const block=name==='touchmove'?activePenPointers.size>0:(drawing||(typeof drawingTools!=='undefined'&&drawingTools?.hasGesture?.()));if(block&&e.cancelable)e.preventDefault()},{passive:false,capture:true});
-$('pan-page').onchange=()=>{endStroke();showEraser(null);$('canvas').classList.toggle('page-pan',$('pan-page').checked);$('canvas').classList.toggle('erasing',tool==='eraser'&&!$('pan-page').checked);$('touch').disabled=$('pan-page').checked;toast($('pan-page').checked?'두 손가락을 나란히 좌우로 쓸어 페이지 이동 · 벌리거나 모아 확대·축소. 필기하려면 화면 이동을 꺼주세요.':'필기 모드입니다. 종이 밖에서 스크롤할 수 있어요.');};
+$('pan-page').onchange=()=>{endStroke();showEraser(null);$('canvas').classList.toggle('page-pan',$('pan-page').checked);$('canvas').classList.toggle('erasing',tool==='eraser'&&!$('pan-page').checked);$('touch').disabled=$('pan-page').checked;toast($('pan-page').checked?'두 손가락으로 종이만 이동·확대합니다. 빈 종이를 왼쪽으로 길게 끌고 놓으면 새 페이지를 추가해요.':'필기 모드입니다. 화면은 고정되고 두 손가락으로 종이를 이동·확대할 수 있어요.');};
 $('touch').onchange=()=>endStroke();
 $('eraser-size').onchange=()=>{endStroke();showEraser(null)};
 for(const name of ['pen','eraser','select'])$(name).onclick=()=>{endStroke();tool=name;clearSelection();$('pan-page').checked=false;$('canvas').classList.remove('page-pan');$('touch').disabled=false;$('canvas').classList.toggle('selecting',name==='select');$('eraser-options').hidden=name!=='eraser';$('canvas').classList.toggle('erasing',name==='eraser'&&!$('pan-page').checked);showEraser(null);for(const other of ['pen','eraser','select']){$(other).classList.toggle('active',name===other);$(other).setAttribute('aria-pressed',name===other)}renderInk();$('auto-status').textContent=name==='select'?'글을 올가미로 둘러 선택한 뒤, 안쪽을 끌어 이동하세요. 변환 글은 원본 묶음과 함께 이동합니다.':name==='eraser'?'원형 지우개: 원본 획을 부분 삭제합니다. 한 번의 드래그는 한 번에 되돌릴 수 있어요.':autoEnabled?'펜으로 쓰면 멈춘 뒤 자동 변환합니다.':'펜으로 바로 쓰세요. 자동 변환은 글씨체 · AI에서 켤 수 있어요.'};
@@ -220,7 +221,18 @@ drawingTools=mountDrawingTools({getNote:()=>note,canDirectTouch:()=>!switching&&
  note=next;recognitionResults.delete(note.id);retryWarnings.delete(note.id);converted.delete(note.id);autoChanged();dirty();render();$('auto-status').textContent=message||'그림을 적용했습니다. 실행 취소로 되돌릴 수 있어요.';return true;
 }});
 for(const key of ['pen','eraser','select','keyboard-text','edit-text','open-pen','pan-page'])$(key).addEventListener('click',()=>drawingTools.deactivate(),{capture:true});
-pageSwipe=mountPageSwipe({canvas:$('canvas'),getPageId:()=>note?.id,canStart:()=>!switching&&!drawingTools?.hasPenGesture?.(),beforeStart:()=>endStroke(false,true),navigate:async direction=>{const pages=pagesFor(notes,notebookId(note)),index=pages.findIndex(p=>p.id===note.id),target=pages[index+direction];if(!target){toast(direction>0?'마지막 페이지입니다. 새 페이지는 ＋ 페이지로 추가하세요.':'첫 페이지입니다.');return false;}await switchNote(target.id);return note.id===target.id;}});
+paperViewport=mountPaperViewport({container:$('paper-viewport'),paper:$('page'),beforeChange:()=>endStroke(false,true),onChange:view=>{$('paper-zoom-reset').textContent=Math.round(view.scale*100)+'%';}});
+pageSwipe=mountPageSwipe({canvas:$('canvas'),surface:$('paper-viewport'),viewport:paperViewport,getPageId:()=>note?.id,
+ canStart:()=>!!note&&!switching&&!drawingTools?.hasPenGesture?.()&&!document.querySelector('dialog[open]')&&$('sidebar').hidden,
+ canAdd:t=>!drawing&&!drawingTools?.isActive()&&($('pan-page').checked||(tool==='pen'&&!$('touch').checked))&&blankPaperPoint(note,inputPoint(t,snapshotRect($('canvas').getBoundingClientRect())),textTargets()),
+ beforeStart:()=>endStroke(false,true),addPage:()=>$('add-page').onclick(),
+ onProgress:state=>{const hint=$('page-add-hint');hint.hidden=!state;if(state){hint.textContent=state.ready?'놓으면 새 페이지 추가':'← 더 길게 끌어 새 페이지 추가';hint.classList.toggle('ready',state.ready);}}
+});
+$('paper-zoom-out').onclick=()=>paperViewport.zoomBy(1/1.25);
+$('paper-zoom-in').onclick=()=>paperViewport.zoomBy(1.25);
+$('paper-zoom-reset').onclick=()=>paperViewport.reset();
+$('paper-viewport').addEventListener('wheel',e=>{e.preventDefault();if(drawing||drawingTools?.hasGesture())return;if(e.ctrlKey||e.metaKey)paperViewport.zoomBy(Math.exp(-e.deltaY*.005));else paperViewport.panBy(-e.deltaX,-e.deltaY);},{passive:false});
+$('paper-viewport').addEventListener('keydown',e=>{if(e.target!==$('paper-viewport'))return;const moves={ArrowLeft:[60,0],ArrowRight:[-60,0],ArrowUp:[0,60],ArrowDown:[0,-60]};if(moves[e.key]){e.preventDefault();paperViewport.panBy(...moves[e.key]);}});
 mountKeyboardText({getNote:()=>note,getFonts:()=>[...FONTS,...customFonts].filter(f=>!customFontId(f.id)||customFaces.has(f.id)).map(f=>({...f,family:`${f.id}, NanumPenScript, sans-serif`})),beforeOpen:()=>{endStroke();stopAuto('키보드 입력 중에는 자동 변환을 껐습니다.');},notify:toast,apply:(next)=>{
  history.push(note);
  if(activeRecognition?.noteId===note.id){activeRecognition.discardResult=true;activeRecognition.controller.abort();}
