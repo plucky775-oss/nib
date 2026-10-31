@@ -2,6 +2,7 @@
 export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
   canSwipe = () => false, canPan = canSwipe, getAction = () => null, beforeStart = () => {}, navigate, viewport,
   onProgress = () => {}, root = document,
+  nativeInput = () => false,
   nativeTouch = 'ontouchstart' in (root.defaultView || {})}) {
   let gesture = null, blocked = false, busy = false, disposed = false;
   const pens = new Set(), pointers = new Map(), options = {capture: true, passive: false};
@@ -84,19 +85,24 @@ export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
     if (!remaining.length) {gesture = null; blocked = false; onProgress(null);}
   }
   function touchStart(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}
     const ts = Array.from(e.touches || []);
     if (ts.some(onSurface) || gesture || blocked) suppress(e);
     if (ts.some(onSurface) || gesture) start(ts);
   }
   function touchMove(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}
     const ts = Array.from(e.touches || []);
     if (ts.some(onSurface) || gesture || blocked) suppress(e);
     move(ts);
   }
-  function touchEnd(e) {if (gesture || blocked) suppress(e); end(Array.from(e.touches || []), Array.from(e.changedTouches || []));}
-  function touchCancel(e) {cancel(); blocked = !!e.touches?.length;}
+  function touchEnd(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}if (gesture || blocked) suppress(e); end(Array.from(e.touches || []), Array.from(e.changedTouches || []));}
+  function touchCancel(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}cancel(); blocked = !!e.touches?.length;}
   const asTouch = e => ({identifier: e.pointerId, clientX: e.clientX, clientY: e.clientY, target: e.target, radiusX: e.width / 2, radiusY: e.height / 2});
   function pointerDown(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}
     if (e.pointerType === 'pen') {pens.add(e.pointerId); cancel(); return;}
     if (e.pointerType !== 'touch') return;
     if (nativeTouch) {if (gesture?.kind === 'view' || blocked) stopPointer(e); return;}
@@ -105,11 +111,13 @@ export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
     if (gesture || blocked) stopPointer(e);
   }
   function pointerMove(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}
     if (e.pointerType !== 'touch') return;
     if (!nativeTouch && pointers.has(e.pointerId)) {pointers.set(e.pointerId, {...asTouch(e), target: pointers.get(e.pointerId).target}); move([...pointers.values()]);}
     if (gesture || blocked) stopPointer(e);
   }
   function pointerEnd(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}
     pens.delete(e.pointerId);
     if (e.pointerType !== 'touch') return;
     const owned = !!gesture || blocked;
@@ -117,6 +125,7 @@ export function mountPageSwipe({canvas, surface = canvas, getPageId, canStart,
     if (owned) stopPointer(e);
   }
   function pointerCancel(e) {
+    if(nativeInput()){cancel();blocked=false;pointers.clear();pens.clear();return;}
     pens.delete(e.pointerId);
     // On TouchEvent devices only touchcancel owns cancellation.
     if (!nativeTouch && e.pointerType === 'touch') {pointers.delete(e.pointerId); cancel(); blocked = pointers.size > 0;}

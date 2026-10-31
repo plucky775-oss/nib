@@ -73,7 +73,7 @@ function appHarness({nativeTouch=true,detectTouch=false}={}){
  // Install the actual legacy pointer-cancel handlers before the drawing module.
  vm.runInContext(piece("for(const name of ['pointercancel','lostpointercapture'])","\n"),scope);
  vm.runInContext(piece('const activePenPointers=',"$('pan-page').onchange="),scope);
- vm.runInContext(piece('drawingTools=mountDrawingTools({','mountKeyboardText({'),scope);
+ vm.runInContext(piece('drawingTools=mountDrawingTools({','inlineBody=mountKeyboardText({'),scope);
  return {scope,ui,counts,history,original,other};
 }
 test('actual app mount apply preserves page ink text and siblings with one undo; aborts only stale current OCR',()=>{

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {fitGroupText,activeConvertedGroups} from '../src/converted-groups.js';
+import {layoutBodyText} from '../src/body-text.js';
+import {hitTestText} from '../src/text-hit.js';
 import {FONTS} from '../src/core.js';
 import {customFontId} from '../src/custom-fonts.js';
 
@@ -19,7 +21,7 @@ function harness({legacy=false,groups=[object()]}={}){
  const $=id=>{if(!nodes.has(id))nodes.set(id,element(id));return nodes.get(id);};
  const metrics={font:'',factor:1,measureText(text){counts.measure++;const size=Number.parseFloat(this.font),index=FONTS.findIndex(f=>this.font.includes(f.id));return {width:Array.from(text).reduce((n,c)=>n+(c===' '?.3:/[\x00-\x7f]/.test(c)?.5:.9),0)*size*(1+Math.max(index,0)*.03)*this.factor};}};
  const scope={$,...{FONTS,customFontId},NS:'svg',note:{id:'page-one',font:'PoorStory',fontSize:32,strokes:[],convertedGroups:groups,text:'',mode:'text',showOriginal:false},tool:'pen',drawing:null,drawingTools:null,
-  customFonts:[],customFaces:faces,fontBusy:false,metrics:undefined,layoutCache:new Map(),activeConvertedGroups,
+  customFonts:[],customFaces:faces,fontBusy:false,metrics:undefined,layoutCache:new Map(),activeConvertedGroups,layoutBodyText,
   fitGroupText(...args){counts.fit++;return fitGroupText(...args);},
   document:{createElement:tag=>{if(tag==='canvas'){counts.canvas++;return {getContext:()=>metrics};}return element(tag);},createElementNS:(_ns,tag)=>element(tag),fonts:{addEventListener(name,fn){events.set(name,fn);},delete(face){deleted.push(face);}}},
   drawSelection(){},buttons(){},path(){throw Error('Fixture contains no visible raw strokes');},chooseDefaultFont(){},confirm:()=>true,toast:text=>toasts.push(text),
@@ -105,4 +107,21 @@ test('actual custom-font delete and same-ID re-add clear cached face metrics, re
 test('actual font restoration invalidates same-ID metrics after faces finish loading',async()=>{
  const group=object({font:customId}),h=harness();h.faces.set(customId,{old:true});h.layout(group);h.fontHandlers();h.scope.listCustomFonts=async()=>[record];h.metrics.factor=1.4;await h.scope.restoreFonts();
  assert.equal(h.scope.layoutCache.size,0);assert.deepEqual(h.faces.get(customId),{family:customId});h.reset();h.layout(group);assert.equal(h.counts.fit,1);assert.ok(h.counts.measure>0);
+});
+
+test('body hit targets include visible text only, leaving blank paper and blank lines available for gestures',()=>{
+ const body=object({body:true,strokeIds:[],text:'첫줄\n\n둘째 줄',fontSize:32,bounds:{x:72,y:156,width:756,height:1020}}),other=object({id:'old',text:'기존',bounds:{x:400,y:700,width:200,height:100}}),h=harness({groups:[body,other]});
+ h.render();const targets=plain(h.scope.textTargets()),bodyTargets=targets.filter(target=>target.groupId===body.id);
+ assert.equal(bodyTargets.length,2);assert.equal(bodyTargets[0].bounds.x,72);assert.equal(bodyTargets[0].bounds.y,156);
+ assert.ok(bodyTargets[0].bounds.width<756);assert.equal(bodyTargets[0].bounds.height,38.4);
+ assert.ok(hitTestText({x:80,y:165},targets));assert.equal(hitTestText({x:80,y:200},targets),null);
+ assert.equal(hitTestText({x:80,y:500},targets),null);assert.equal(hitTestText({x:700,y:165},targets),null);
+ assert.deepEqual(targets.find(target=>target.groupId==='old').bounds,other.bounds);
+ assert.deepEqual(body.bounds,{x:72,y:156,width:756,height:1020});
+});
+test('body hit targets never include clipped overflow lines or extend outside body bounds',()=>{
+ const body=object({body:true,strokeIds:[],text:'첫줄\n둘째\n셋째',fontSize:32,bounds:{x:72,y:156,width:756,height:50}}),h=harness({groups:[body]});
+ h.render();const targets=plain(h.scope.textTargets());assert.equal(targets.length,2);assert.equal(targets[1].bounds.height,11.600000000000001);
+ for(const target of targets)assert.ok(target.bounds.y+target.bounds.height<=206);
+ assert.equal(hitTestText({x:80,y:220},targets),null);
 });

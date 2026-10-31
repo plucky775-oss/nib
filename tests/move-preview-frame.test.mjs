@@ -5,6 +5,7 @@ import {readFileSync} from 'node:fs';
 import {History,makeNote,validateNote,FONTS} from '../src/core.js';
 import {customFontId} from '../src/custom-fonts.js';
 import {fitGroupText,activeConvertedGroups} from '../src/converted-groups.js';
+import {layoutBodyText} from '../src/body-text.js';
 import {moveTextObject} from '../src/text-objects.js';
 import {hitTestText,acceptDirectTouch} from '../src/text-hit.js';
 import {normalizePenKind} from '../src/pen-renderer.js';
@@ -18,7 +19,7 @@ function harness(){
  function element(tag){return {tag,children:[],attrs:{},events:new Map(),hidden:false,checked:false,value:'',style:{},classList:{toggle(){},remove(){}},append(...children){this.children.push(...children);},replaceChildren(...children){this.children=children;replacements.set(tag,(replacements.get(tag)||0)+1);},setAttribute(k,v){counts.attrs++;this.attrs[k]=v;},toggleAttribute(k,v){this.attrs[k]=v;},addEventListener(type,fn){this.events.set(type,fn);},getBoundingClientRect:()=>({...rect}),setPointerCapture(id){this.capture=id;},hasPointerCapture(id){return this.capture===id;},releasePointerCapture(){this.capture=null;},focus(){},close(){}};}
  const $=id=>{if(!nodes.has(id))nodes.set(id,element(id));return nodes.get(id);},metrics={font:'',measureText(text){counts.measure++;return {width:Array.from(text).length*Number.parseFloat(this.font)*.5};}};
  const original={...makeNote(),id:'frame-page',font:'Gaegu',fontSize:24,mode:'ink',strokes:[stroke('source',110,120),stroke('visible',500,650)],convertedGroups:[{kind:'text-object',id:'object',strokeIds:['source'],text:'첫 줄\n둘째 줄',font:'Gaegu',fontSize:24,bounds:{x:100,y:100,width:260,height:160}},{kind:'text-object',id:'other',strokeIds:[],text:'그대로',font:'PoorStory',fontSize:32,bounds:{x:500,y:400,width:200,height:100}}],drawingObjects:[{id:'shape',type:'rectangle',bounds:{x:50,y:800,width:100,height:100},text:'그림 보존',color:'#223247',width:2,fill:'none',font:'Gaegu',fontSize:24,reverse:false,flipY:false}]};
- const history=new History(),scope={...input,...selection,History,FONTS,customFontId,customFaces:new Map(),fitGroupText,activeConvertedGroups,hitTestText,acceptDirectTouch,normalizePenKind,structuredClone,NS:'svg',$,metrics:undefined,layoutCache:new Map(),note:original,notes:[original],history,tool:'pen',drawing:null,strokeRect:null,selectedIds:[],selectedObjectIds:[],selectionEpoch:0,autoEngine:{setWriting(){}},autoEnabled:false,textBefore:null,
+ const history=new History(),scope={...input,...selection,History,FONTS,customFontId,customFaces:new Map(),fitGroupText,layoutBodyText,activeConvertedGroups,hitTestText,acceptDirectTouch,normalizePenKind,structuredClone,NS:'svg',$,metrics:undefined,layoutCache:new Map(),note:original,notes:[original],history,tool:'pen',drawing:null,strokeRect:null,selectedIds:[],selectedObjectIds:[],selectionEpoch:0,autoEngine:{setWriting(){}},autoEnabled:false,textBefore:null,
   document:{createElement:tag=>tag==='canvas'?{getContext:()=>metrics}:element(tag),createElementNS:(_ns,tag)=>{counts.svg++;return element(tag);},addEventListener(type,fn){rootEvents.set(type,fn);},fonts:{addEventListener(type,fn){rootEvents.set('font:'+type,fn);}}},
   requestAnimationFrame(fn){const id=++frameId;frames.set(id,fn);callbacks.set(id,fn);return id;},cancelAnimationFrame(id){frames.delete(id);},
   moveTextObject(...args){counts.moves++;return moveTextObject(...args);},drawingTools:{render(){counts.drawingRender++;},cancel(){}},pageSwipe:{cancel(){}},
@@ -96,4 +97,19 @@ test('committed JSON roundtrip redraws durable final coordinates with no persist
 
 test('actual preview and final commit clamp object plus provenance to all page edges',()=>{
  for(const [x,y,expectedX,expectedY]of [[900,1200,640,1040],[0,0,0,0]]){const h=harness(),before=plain(h.scope.note);h.send('pointerdown');h.send('pointermove',x,y);h.frame();assert.equal(h.target('object').bounds.x,expectedX);assert.equal(h.target('object').bounds.y,expectedY);assert.equal(h.wrapper('object').attrs.transform,`translate(${expectedX-100} ${expectedY-100})`);h.send('pointerup',x,y);assert.equal(h.scope.history.past.length,1);const group=h.scope.note.convertedGroups[0];assert.ok(group.bounds.x>=0&&group.bounds.y>=0&&group.bounds.x+group.bounds.width<=900&&group.bounds.y+group.bounds.height<=1200);assert.equal(h.scope.note.strokes[0].points[0].x,110+expectedX-100);assert.equal(h.scope.note.strokes[0].points[0].y,120+expectedY-100);assert.deepEqual(plain(h.scope.note.strokes[1]),before.strokes[1]);assert.deepEqual(plain(validateNote(plain(h.scope.note)).convertedGroups[0]),plain(group));}
+});
+
+test('body line targets retain local offsets and clipped dimensions over repeated partial drag frames',()=>{
+ const h=harness();h.scope.note.convertedGroups[0]={...h.scope.note.convertedGroups[0],body:true,strokeIds:[],text:'첫줄\n\n둘째 줄',bounds:{x:100,y:100,width:756,height:1000}};h.scope.renderInk();
+ const targets=()=>plain(h.scope.textTargets().filter(t=>t.groupId==='object')),before=targets();assert.equal(before.length,2);h.send('pointerdown',110,110);
+ h.send('pointermove',120,120);h.frame();let after=targets();
+ assert.deepEqual(after.map(t=>t.bounds),before.map(t=>({...t.bounds,x:t.bounds.x+10,y:t.bounds.y+10})));
+ h.send('pointermove',140,135);h.frame();after=targets();assert.deepEqual(after.map(t=>t.bounds),before.map(t=>({...t.bounds,x:t.bounds.x+30,y:t.bounds.y+25})));
+ assert.equal(hitTestText({x:150,y:600},after),null);h.send('pointerup',140,135);assert.deepEqual(targets(),after);
+});
+
+test('dragging another text object never expands untouched body hit targets to the full editor rectangle',()=>{
+ const h=harness();h.scope.note.convertedGroups[1]={...h.scope.note.convertedGroups[1],body:true,text:'본문',bounds:{x:400,y:400,width:500,height:780}};h.scope.renderInk();
+ const before=plain(h.target('other'));h.send('pointerdown');h.send('pointermove',160,170);h.frame();assert.deepEqual(plain(h.target('other')),before);
+ h.send('pointerup',180,190);assert.deepEqual(plain(h.target('other')),before);assert.equal(hitTestText({x:420,y:900},[h.target('other')]),null);
 });

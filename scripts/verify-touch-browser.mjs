@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-const {chromium}=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright');
+const playwright=await import(process.env.NIB_PLAYWRIGHT_MODULE || 'playwright');
+const {chromium}=playwright.default||playwright;
 (async()=>{
  const server=http.createServer((req,res)=>{const file=path.join(path.resolve('dist'),decodeURIComponent(req.url.split('?')[0]==='/'?'/index.html':req.url.split('?')[0]));try{const body=fs.readFileSync(file);res.setHeader('Content-Type',({'js':'text/javascript','css':'text/css','html':'text/html','json':'application/json','svg':'image/svg+xml'})[file.split('.').at(-1)]||'application/octet-stream');res.end(body)}catch{res.writeHead(404);res.end()}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const url=`http://127.0.0.1:${server.address().port}`;

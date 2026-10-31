@@ -28,13 +28,14 @@ export function activeConvertedGroups(groups,strokes){return (Array.isArray(grou
 export function validateGroups(groups,strokes){
  if(!Array.isArray(groups))return [];
  if(groups.length>MAX_GROUPS)throw Error('텍스트 객체가 너무 많습니다. 원본 백업을 보관하고 페이지를 나누어주세요.');
- const usedIds=new Set(),result=[];let total=0;
+ const usedIds=new Set(),result=[];let total=0,bodyCount=0;
  for(const g of groups){
   if(!g||!validId(g.id)||usedIds.has(g.id)||typeof g.text!=='string'||!g.text.trim()||!validBounds(g.bounds))continue;
   if(g.text.length>MAX_GROUP_TEXT||total+g.text.length>MAX_GROUP_TEXT_TOTAL)throw Error('텍스트 객체의 총 글자 수가 너무 많습니다. 원본 백업을 보관하고 페이지를 나누어주세요.');
   if(Array.isArray(g.strokeIds)&&g.strokeIds.length>5000)throw Error('텍스트 객체의 원본 연결이 너무 많습니다. 원본 백업을 보관해주세요.');
   const ids=[...new Set((Array.isArray(g.strokeIds)?g.strokeIds:[]).filter(validId))];
-  result.push({kind:'text-object',id:g.id,strokeIds:ids,text:g.text,bounds:{x:g.bounds.x,y:g.bounds.y,width:g.bounds.width,height:g.bounds.height},...groupFontOverrides(g),...(g.recovery==='legacy-text'?{recovery:'legacy-text'}:{})});
+  if(g.body===true&&++bodyCount>1)throw Error('한 페이지에는 본문이 하나만 있을 수 있습니다. 원본 백업을 확인해주세요.');
+  result.push({kind:'text-object',id:g.id,strokeIds:ids,text:g.text,bounds:{x:g.bounds.x,y:g.bounds.y,width:g.bounds.width,height:g.bounds.height},...groupFontOverrides(g),...(g.body===true?{body:true}:{}),...(g.recovery==='legacy-text'?{recovery:'legacy-text'}:{})});
   total+=g.text.length;usedIds.add(g.id);
  }
  return result;
