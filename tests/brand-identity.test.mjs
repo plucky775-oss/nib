@@ -12,11 +12,12 @@ const tags=name=>[...html.matchAll(new RegExp('<'+name+'\\b[^>]*>','g'))].map(m=
 const publicPath=src=>'public/'+src.replace(/^\.\//,'');
 function png(buffer){assert.deepEqual([...buffer.subarray(0,8)],[137,80,78,71,13,10,26,10]);assert.equal(buffer.toString('ascii',12,16),'IHDR');return [buffer.readUInt32BE(16),buffer.readUInt32BE(20)];}
 
-// v34 is an identity-only release. These v33 (4ea03825) fingerprints intentionally
+// Brand assets and unchanged data/auth code retain their v33 (4ea03825) fingerprints.
+// v36 intentionally changes app navigation; control inventory is checked separately.
+// These fingerprints intentionally
 // guard persistence/auth/backup/gesture code against accidental rename/migration.
 // Future functional changes must review/update these release-bound expectations.
 const preserved={
- 'src/app.js':'567644b6feb06bfd79f9093b7f542a936dc3c307e276f8c1367368656a3f0e35',
  'src/core.js':'59906ed42d4c80c482ec5e2c5f08dddfbaaecb948c3cea295321a8fb1ab98e4b',
  'src/storage.js':'55c584145cffcad2604dfaa4972b57668d8260be34fa6404b5bd0be9d4a4a467',
  'src/custom-fonts.js':'06697c97089fef8903c235a83c63e8a9e06671e381fe9595f60f5946408ba318',
@@ -63,13 +64,13 @@ test('legacy icon URL embeds the same approved 192px symbol, without scripts or 
 });
 
 test('all existing control IDs, note title input and paper coordinate system survive branding',()=>{
- const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]).sort();assert.equal(ids.length,188);assert.equal(new Set(ids).size,188);assert.equal(sha(JSON.stringify(ids)),'c87cf4313de05f9b5fc6d12f708ce452fcd42301797238b3b6e4a48f0a75481d');
+ const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]).sort();assert.ok(ids.length>=188);assert.equal(new Set(ids).size,ids.length); // Exact legacy ID preservation: editor-menu-inventory.test.mjs
  const title=tags('input').find(t=>t.id==='title');assert.equal(title.maxlength,'120');assert.equal(title['aria-label'],'노트 제목');assert.equal(title.value,'새 노트');assert.equal(tags('svg').find(t=>t.id==='canvas').viewBox,'0 0 900 1200');
  const app=text('src/app.js');for(const key of ['nib-active-page','nib-last-pages','nib-backup','nib-notebook'])assert.ok(app.includes(`'${key}'`));assert.match(text('src/storage.js'),/const DB='nib-notes-v1'/);assert.match(text('src/custom-fonts.js'),/indexedDB\.open\('nib-custom-fonts-v1',1\)/);
 });
 
 test('brand CSS preserves all prior gesture geometry and keeps the English caption below the symbol at every width',()=>{
- const css=text('src/styles.css'),[base,brand]=css.split('/* MOA NOTE identity:');assert.equal(sha(base.trim()),'658a49883e4fca9d37891a843018c6952612946e99e864f123857d65ba89d893');assert.ok(brand);
+ const css=text('src/styles.css'),[base,brand]=css.split('/* Compact writing navigation:')[0].split('/* MOA NOTE identity:');assert.equal(sha(base.trim()),'658a49883e4fca9d37891a843018c6952612946e99e864f123857d65ba89d893');assert.ok(brand);
  assert.match(brand,/\.header-brand\{[^}]*flex-direction:column[^}]*min-width:48px/);assert.match(brand,/\.header-brand>span\{[^}]*display:block/);assert.match(brand,/\.moa-logo-lockup\{[^}]*flex-direction:column/);assert.match(brand,/\.moa-header-icon\{[^}]*width:24px;height:24px/);assert.doesNotMatch(brand,/header-brand[^}]*display:none/);assert.doesNotMatch(brand,/#(?:title|canvas|page|paper)|touch-action|pointer-events/);
  assert.match(base,/#title\{[^}]*min-width:0/);assert.match(base,/button\{[^}]*min-height:44px/);
 });
@@ -86,8 +87,8 @@ test('actual library renders the new brand as safe text without renaming or modi
 });
 
 test('actual service worker precaches every brand asset and cleans only older nib-shell caches',async()=>{
- const handlers=new Map(),opened=[],added=[],deleted=[];let claimed=0;const scope={self:{addEventListener(name,fn){handlers.set(name,fn);},clients:{claim(){claimed++;}}},caches:{open:async name=>{opened.push(name);return {addAll:async assets=>added.push(...assets)};},keys:async()=>['nib-shell-v39-save-snapshot','nib-shell-v40-moa-brand','other-app-cache','nib-notes-v1'],delete:async name=>{deleted.push(name);return true;}},indexedDB:{open(){assert.fail('Brand cache migration must not touch note databases');}}};
- vm.createContext(scope);vm.runInContext(text('public/sw.js'),scope);let pending;handlers.get('install')({waitUntil(p){pending=p;}});await pending;assert.deepEqual(opened,['nib-shell-v40-moa-brand']);
+ const handlers=new Map(),opened=[],added=[],deleted=[];let claimed=0;const scope={self:{addEventListener(name,fn){handlers.set(name,fn);},clients:{claim(){claimed++;}}},caches:{open:async name=>{opened.push(name);return {addAll:async assets=>added.push(...assets)};},keys:async()=>['nib-shell-v39-save-snapshot','nib-shell-v40-moa-brand','nib-shell-v41-inline-body','nib-shell-v42-compact-menus','other-app-cache','nib-notes-v1'],delete:async name=>{deleted.push(name);return true;}},indexedDB:{open(){assert.fail('Brand cache migration must not touch note databases');}}};
+ vm.createContext(scope);vm.runInContext(text('public/sw.js'),scope);let pending;handlers.get('install')({waitUntil(p){pending=p;}});await pending;assert.deepEqual(opened,['nib-shell-v42-compact-menus']);
  for(const file of Object.keys(approvedAssets))assert.ok(added.includes('./brand/'+file));for(const required of ['./manifest.webmanifest','./icon.svg','./src/storage.js','./src/core.js','./src/app.js'])assert.ok(added.includes(required));for(const asset of added){const relative=asset.replace(/^\.\//,'');if(!relative)continue;assert.ok(read(relative.startsWith('src/')||relative==='index.html'?relative:'public/'+relative).length>0,asset);}
- handlers.get('activate')({waitUntil(p){pending=p;}});await pending;assert.deepEqual(deleted,['nib-shell-v39-save-snapshot']);assert.equal(claimed,1);
+ handlers.get('activate')({waitUntil(p){pending=p;}});await pending;assert.deepEqual(deleted,['nib-shell-v39-save-snapshot','nib-shell-v40-moa-brand','nib-shell-v41-inline-body']);assert.equal(claimed,1);
 });

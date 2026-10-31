@@ -1,3 +1,4 @@
+import {mountEditorMenus} from './editor-menu.js';
 import {mountPageSwipe} from './page-swipe.js';
 import {mountPaperViewport} from './paper-viewport.js';
 import {blankPaperPoint} from './touch-hit.js';
@@ -32,7 +33,7 @@ import {PAGE,FONTS,makeNote,smoothPoints,strokePath,escapeXml,History,parseBacku
 import {getNotes,saveNote,removeNote,saveNotesBatch,prepareNotesSave,removeNotesBatch,removePageSafely} from './storage.js';
 const $=id=>document.getElementById(id);document.querySelector('.app').inert=true; const NS='http://www.w3.org/2000/svg';let notes=[],note,history=new History(),drawing=null,tool='pen',saveTimer,saveSerial=0,textBefore=null,accessToken='',recognizing=false,aiConfigured=false,switching=false,saveQueue=Promise.resolve(true);const revisions=new Map(),dirtyNotes=new Set(),pageHistories=new Map(),lastPages=new Map(),importSets=new Map();let customFonts=[],fontBusy=false,strokeRect=null,showResult=false;const customFaces=new Map();let autoEnabled=false,autoEngine=null,inkRevision=0,pendingAuto=false,sessionConsent=false,sessionAutoConsent=false;const converted=new Map();const recognitionResults=new Map(),retryWarnings=new Set();
 const recognitionBudget=createRecognitionBudget();
-let activeRecognition=null;let drawingTools=null;let pageSwipe=null;let paperViewport=null;
+let editorMenus=null;let activeRecognition=null;let drawingTools=null;let pageSwipe=null;let paperViewport=null;
 let selectedIds=[],selectedObjectIds=[],selectionEpoch=0,pendingSelected=false,pendingSelectionEpoch=null;
 function clearSelection(){$('object-editor').hidden=true;selectionEpoch++;selectedIds=[];selectedObjectIds=[];$('selection-actions').hidden=true;$('lasso-path').toggleAttribute('hidden',true);$('selection-box').toggleAttribute('hidden',true);}
 function drawSelection(rect=null){const b=rect||selectionBounds(note.strokes,note.convertedGroups||[],selectedIds,selectedObjectIds),el=$('selection-box');el.toggleAttribute('hidden',!b||tool!=='select'||drawing?.directTouch===true);if(b)for(const [k,v]of Object.entries(b))el.setAttribute(k,v);$('selection-actions').hidden=!b||tool!=='select'||!(selectedIds.length||selectedObjectIds.length)||drawing?.directTouch===true;$('selection-info').textContent=selectedIds.length+'획 · '+selectedObjectIds.length+'객체 선택';$('selection-convert').disabled=!selectedIds.length;$('selection-edit').disabled=selectedObjectIds.length!==1;$('selection-restore').disabled=!selectedObjectIds.length;}
@@ -280,7 +281,8 @@ const library=mountLibrary({getNotes:()=>notes,getCurrent:()=>notebookId(note),d
 // Main-page conversion never switches notebook or page. Keep the existing
 // consent and request-budget path for both whole-page and selected conversion.
 $('convert-page').onclick=()=>{if(selectedIds.length)$('selection-convert').onclick();else if(selectedObjectIds.length)toast('이미 변환한 글입니다. 선택 폰트 적용이나 글·크기 수정을 사용하세요.');else $('recognize').onclick();};
-drawingTools=mountDrawingTools({getNote:()=>note,canDirectTouch:()=>!switching&&!drawing&&tool==='pen'&&!$('pan-page').checked&&!$('touch').checked,beforeGesture:()=>{endStroke();clearSelection();stopAuto('그림 작업 중에는 자동 글씨 변환을 껐습니다.');$('pan-page').checked=false;$('canvas').classList.remove('page-pan','erasing');$('touch').disabled=false;},activatePen:()=>$('pen').onclick(),openPen:()=>$('open-pen').click(),getStyle:()=>({color:$('color').value,width:Number($('width').value),font:effectiveFont(),fontSize:note.fontSize}),apply:(next,message)=>{
+editorMenus=mountEditorMenus({beforeOpen:()=>{endStroke();pageSwipe?.cancel();},getDrawing:()=>drawingTools});
+drawingTools=mountDrawingTools({compact:true,onState:state=>{if(typeof editorMenus!=='undefined')editorMenus?.syncDrawing(state)},getNote:()=>note,canDirectTouch:()=>!switching&&!drawing&&tool==='pen'&&!$('pan-page').checked&&!$('touch').checked,beforeGesture:()=>{endStroke();clearSelection();stopAuto('그림 작업 중에는 자동 글씨 변환을 껐습니다.');$('pan-page').checked=false;$('canvas').classList.remove('page-pan','erasing');$('touch').disabled=false;},activatePen:()=>$('pen').onclick(),openPen:()=>$('open-pen').click(),getStyle:()=>({color:$('color').value,width:Number($('width').value),font:effectiveFont(),fontSize:note.fontSize}),apply:(next,message)=>{
  if(next.id!==note.id)return false;history.push(note);
  if(activeRecognition?.noteId===note.id){activeRecognition.discardResult=true;activeRecognition.controller.abort();}
  note=next;recognitionResults.delete(note.id);retryWarnings.delete(note.id);converted.delete(note.id);autoChanged();dirty();render();$('auto-status').textContent=message||'그림을 적용했습니다. 실행 취소로 되돌릴 수 있어요.';return true;
