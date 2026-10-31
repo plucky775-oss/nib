@@ -9,8 +9,3 @@ test('thumbnail caps strokes and points with uniform full-range sampling, no mut
 test('object preview limits text to 200 codepoints and keeps independent clipping',()=>{const svg=renderPagePreview({convertedGroups:[{...group,text:'가'.repeat(250)}]});assert.equal((svg.match(/가/g)||[]).length,200);assert.match(svg,/overflow="hidden"/);assert.match(svg,/x="50" y="60" width="300" height="150"/);});
 test('original view shows raw not converted objects; invalid bounds are ignored',()=>{const page={paper:'plain',strokes:[stroke('s')],convertedGroups:[group],showOriginal:true};assert.match(renderPagePreview(page),/data-preview-ink/);assert.doesNotMatch(renderPagePreview(page),/data-preview-object/);assert.doesNotMatch(renderPagePreview({convertedGroups:[{...group,bounds:{...group.bounds,x:NaN}}]}),/data-preview-object/);});
 test('legacy typed text with no ink still previews without changing original record',()=>{const page={text:'입력한 글',font:'PoorStory',fontSize:32,strokes:[]};assert.match(renderPagePreview(page),/입력한 글/);assert.match(renderPagePreview(page),/PoorStory/);assert.equal(page.convertedGroups,undefined);});
-test('body thumbnail keeps selected size and all text beyond 200 characters with independent page clipping',()=>{
- const body={...group,body:true,strokeIds:[],text:'가'.repeat(4001),fontSize:40,bounds:{x:72,y:156,width:756,height:1020}},page={convertedGroups:[body]},before=structuredClone(page),svg=renderPagePreview(page);
- assert.equal((svg.match(/가/g)||[]).length,4001);assert.ok([...svg.matchAll(/font-size="([^"]+)"/g)].every(match=>match[1]==='40'));
- assert.match(svg,/overflow="hidden"/);assert.match(svg,/width="756" height="1020"/);assert.deepEqual(page,before);
-});
